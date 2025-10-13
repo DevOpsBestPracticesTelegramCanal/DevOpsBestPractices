@@ -4,7 +4,7 @@
 
 ## 📁 Доступные шаблоны
 
-### 1. Grafana 12 Best Practices Demo
+### 1. Grafana 12 Best Practices Demo ⭐
 **Файл:** \grafana-12-best-practices.json\
 
 **Включает 4 секции:**
@@ -12,6 +12,16 @@
 - ✅ Network Metrics - сетевой трафик, ошибки
 - ✅ Disk & Storage - дисковые операции
 - ✅ Advanced Metrics - load average, context switches
+
+### 2. Node Exporter Full (ID: 1860) 🔥
+**Файл:** \
+ode-exporter-full.json\
+
+**Самый популярный дашборд для мониторинга серверов!**
+- ✅ 30+ панелей с метриками
+- ✅ CPU, Memory, Network, Disk
+- ✅ System Load, Processes
+- ✅ Используется в 100,000+ установках
 
 ## 📥 Как импортировать дашборд
 
@@ -24,15 +34,7 @@
 5. Выберите **Prometheus** как Data Source
 6. Нажмите **Import**
 
-### Вариант 2: Через curl
-
-\\\ash
-curl -X POST -H "Content-Type: application/json" -u admin:admin \
-  -d @grafana-12-best-practices.json \
-  http://localhost:3000/api/dashboards/db
-\\\
-
-### Вариант 3: Автоматическая загрузка
+### Вариант 2: Автоматическая загрузка ✨
 
 Поместите JSON файл в папку:
 \\\
@@ -52,7 +54,7 @@ Grafana автоматически загрузит все дашборды пр
 ## 📚 Ссылки
 
 - [Grafana Documentation](https://grafana.com/docs/grafana/latest/)
-- [Prometheus Queries](https://prometheus.io/docs/prometheus/latest/querying/basics/)
+- [Node Exporter Full Dashboard](https://grafana.com/grafana/dashboards/1860)
 - [Telegram канал](https://t.me/devops_best_practices)
 
-#Grafana12 #Dashboards #DevOps
+#Grafana12 #Dashboards #DevOps #NodeExporter
