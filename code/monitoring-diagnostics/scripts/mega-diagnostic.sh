@@ -19,15 +19,15 @@ log() {
 }
 
 error() {
-    echo -e "${RED}❌ $1${NC}" | tee -a diagnostic.log
+    echo -e "${RED}[ERROR] $1${NC}" | tee -a diagnostic.log
 }
 
 success() {
-    echo -e "${GREEN}✅ $1${NC}" | tee -a diagnostic.log
+    echo -e "${GREEN}[OK] $1${NC}" | tee -a diagnostic.log
 }
 
 warning() {
-    echo -e "${YELLOW}⚠️ $1${NC}" | tee -a diagnostic.log
+    echo -e "${YELLOW}[WARNING] $1${NC}" | tee -a diagnostic.log
 }
 
 echo "=== SYSTEM DIAGNOSTIC $(date '+%Y-%m-%d %H:%M:%S') ===" | tee diagnostic.log
@@ -173,30 +173,30 @@ READINESS_SCORE=100
 ISSUES=0
 
 # Подсчет проблем из лога
-WARNINGS=$(grep -c "⚠️" diagnostic.log || echo "0")
-ERRORS=$(grep -c "❌" diagnostic.log || echo "0")
+WARNINGS=$(grep -c "\\[WARNING\\]" diagnostic.log || echo "0")
+ERRORS=$(grep -c "\\[ERROR\\]" diagnostic.log || echo "0")
 
 READINESS_SCORE=$((READINESS_SCORE - WARNINGS * 10 - ERRORS * 20))
 ISSUES=$((WARNINGS + ERRORS))
 
 echo "" | tee -a diagnostic.log
 echo "=================== РЕЗУЛЬТАТ ===================" | tee -a diagnostic.log
-echo -e "${BLUE}📊 Оценка готовности: ${READINESS_SCORE}%${NC}" | tee -a diagnostic.log
-echo -e "${BLUE}⚠️  Предупреждений: ${WARNINGS}${NC}" | tee -a diagnostic.log
-echo -e "${BLUE}❌ Критических проблем: ${ERRORS}${NC}" | tee -a diagnostic.log
+echo -e "${BLUE}[SCORE] Оценка готовности: ${READINESS_SCORE}%${NC}" | tee -a diagnostic.log
+echo -e "${BLUE}[WARNING] Предупреждений: ${WARNINGS}${NC}" | tee -a diagnostic.log
+echo -e "${BLUE}[ERROR] Критических проблем: ${ERRORS}${NC}" | tee -a diagnostic.log
 
 if [ "$READINESS_SCORE" -ge 80 ]; then
-    echo -e "${GREEN}✅ Система готова к развертыванию мониторинга${NC}" | tee -a diagnostic.log
+    echo -e "${GREEN}[READY] Система готова к развертыванию мониторинга${NC}" | tee -a diagnostic.log
 elif [ "$READINESS_SCORE" -ge 60 ]; then
-    echo -e "${YELLOW}⚠️ Система требует минимальных исправлений${NC}" | tee -a diagnostic.log
+    echo -e "${YELLOW}[MINOR] Система требует минимальных исправлений${NC}" | tee -a diagnostic.log
 else
-    echo -e "${RED}❌ Система НЕ готова. Необходимы исправления${NC}" | tee -a diagnostic.log
+    echo -e "${RED}[NOT_READY] Система НЕ готова. Необходимы исправления${NC}" | tee -a diagnostic.log
 fi
 
 echo "" | tee -a diagnostic.log
-echo "📄 Полный отчет сохранен в: diagnostic.log" | tee -a diagnostic.log
-echo "🔧 Инструкции по исправлению: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices/tree/main/code/monitoring-diagnostics" | tee -a diagnostic.log
-echo "💬 Поддержка: @DevOps_best_practices" | tee -a diagnostic.log
+echo "[INFO] Полный отчет сохранен в: diagnostic.log" | tee -a diagnostic.log
+echo "[INFO] Инструкции по исправлению: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices/tree/main/code/monitoring-diagnostics" | tee -a diagnostic.log
+echo "[INFO] Поддержка: @DevOps_best_practices" | tee -a diagnostic.log
 
 # Генерация JSON отчета для автоматизации
 cat > diagnostic_report.json << EOF
@@ -216,6 +216,6 @@ cat > diagnostic_report.json << EOF
 }
 EOF
 
-echo "📊 JSON отчет: diagnostic_report.json" | tee -a diagnostic.log
+echo "[INFO] JSON отчет: diagnostic_report.json" | tee -a diagnostic.log
 
 exit 0

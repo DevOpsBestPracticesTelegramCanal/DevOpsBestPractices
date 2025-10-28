@@ -53,7 +53,7 @@ class MonitoringAnalyzer(SystemChecker):
         
     def analyze(self) -> Dict:
         """Основной метод анализа системы"""
-        print("🔍 Запуск интеллектуального анализа системы...")
+        print("[ANALYZER] Запуск анализа системы...")
         
         report = {
             'timestamp': datetime.now().isoformat(),
@@ -81,7 +81,7 @@ class MonitoringAnalyzer(SystemChecker):
     
     def _check_ports(self) -> Dict:
         """Проверка доступности портов"""
-        print("  📡 Проверка портов...")
+        print("  [PORTS] Проверка портов...")
         results = {}
         
         for port, service in self.monitoring_ports.items():
@@ -122,7 +122,7 @@ class MonitoringAnalyzer(SystemChecker):
     
     def _check_resources(self) -> Dict:
         """Проверка системных ресурсов"""
-        print("  💾 Проверка ресурсов...")
+        print("  [RESOURCES] Проверка ресурсов...")
         results = {}
         
         # Память
@@ -168,7 +168,7 @@ class MonitoringAnalyzer(SystemChecker):
     
     def _check_system_limits(self) -> Dict:
         """Проверка системных лимитов"""
-        print("  ⚙️ Проверка лимитов...")
+        print("  [LIMITS] Проверка лимитов...")
         results = {}
         
         # Файловые дескрипторы
@@ -193,7 +193,7 @@ class MonitoringAnalyzer(SystemChecker):
     
     def _check_docker(self) -> Dict:
         """Проверка Docker окружения"""
-        print("  🐳 Проверка Docker...")
+        print("  [DOCKER] Проверка Docker...")
         results = {}
         
         # Проверка установки Docker
@@ -240,7 +240,7 @@ class MonitoringAnalyzer(SystemChecker):
     
     def _check_kubernetes(self) -> Dict:
         """Проверка Kubernetes окружения"""
-        print("  ☸️ Проверка Kubernetes...")
+        print("  [K8S] Проверка Kubernetes...")
         results = {}
         
         # Проверка kubectl
@@ -271,7 +271,7 @@ class MonitoringAnalyzer(SystemChecker):
     
     def _check_existing_monitoring(self) -> Dict:
         """Проверка существующих установок мониторинга"""
-        print("  🔍 Поиск существующих установок...")
+        print("  [MONITORING] Поиск существующих установок...")
         results = {}
         
         # Поиск конфигурационных файлов
@@ -416,28 +416,28 @@ def main():
         # Вывод результатов
         summary = report['summary']
         print(f"\n{'='*50}")
-        print(f"📊 Оценка готовности: {summary['readiness_score']}%")
+        print(f"[SCORE] Оценка готовности: {summary['readiness_score']}%")
         print(f"📋 Статус: {summary['message']}")
-        print(f"❌ Критических проблем: {summary['critical_issues']}")
-        print(f"⚠️ Предупреждений: {summary['warnings']}")
+        print(f"[ERROR] Критических проблем: {summary['critical_issues']}")
+        print(f"[WARNING] Предупреждений: {summary['warnings']}")
         print(f"{'='*50}")
         
         if analyzer.issues:
-            print("\n❌ Критические проблемы:")
+            print("\n[ERROR] Критические проблемы:")
             for issue in analyzer.issues:
                 print(f"  - {issue}")
                 
         if analyzer.warnings:
-            print("\n⚠️ Предупреждения:")
+            print("\n[WARNING] Предупреждения:")
             for warning in analyzer.warnings:
                 print(f"  - {warning}")
         
         if summary['readiness_score'] >= 80:
-            print(f"\n✅ Система готова! Можно запускать мониторинг.")
+            print(f"\n[READY] Система готова! Можно запускать мониторинг.")
         elif summary['readiness_score'] >= 60:
-            print(f"\n⚠️ Система готова с оговорками. Рекомендуется устранить предупреждения.")
+            print(f"\n[PARTIAL] Система готова с оговорками. Рекомендуется устранить предупреждения.")
         else:
-            print(f"\n❌ Система НЕ готова. Необходимо устранить критические проблемы.")
+            print(f"\n[NOT_READY] Система НЕ готова. Необходимо устранить критические проблемы.")
             
         # Сохранение отчета
         report_file = f'monitoring_analysis_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
@@ -445,7 +445,7 @@ def main():
             json.dump(report, f, indent=2, ensure_ascii=False)
             
         print(f"\n📄 Полный отчет сохранен: {report_file}")
-        print("🔧 Инструкции по исправлению: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices/tree/main/code/monitoring-diagnostics")
+        print("[INFO] Инструкции по исправлению: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices/tree/main/code/monitoring-diagnostics")
         
         # Возвращаем код выхода в зависимости от готовности
         sys.exit(0 if summary['readiness_score'] >= 60 else 1)
