@@ -1,0 +1,122 @@
+title: "Комплексная диагностика инфраструктуры перед развертыванием системы мониторинга: практическое руководство"
+author: "DevOpsBestPractices Team"
+date: "2025-01-15"
+version: "1.0"
+category: "DevOps"
+subcategory: "Monitoring"
+language: "ru"
+
+tags:
+  - DevOps
+  - Prometheus
+  - Grafana
+  - Monitoring
+  - Docker
+  - Kubernetes
+  - BestPractices
+  - SRE
+  - Диагностика
+  - Автоматизация
+  - CI_CD
+  - Production
+  - Linux
+  - SystemAdmin
+  - Infrastructure
+
+tldr: "Методология полной диагностики среды перед установкой Prometheus и Grafana. Готовые bash-скрипты, Python-анализатор, интеграция с CI/CD. Предотвращение 95% критических ошибок, экономия до 80% времени на развертывании."
+
+difficulty: "intermediate"
+reading_time_minutes: 12
+implementation_time_minutes: 30
+
+links:
+  github_repo: "https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices"
+  telegram: "https://t.me/DevOps_best_practices"
+  habr_profile: "https://habr.com/ru/users/devops-best-practices/"
+
+related_code:
+  base_path: "/code/monitoring-diagnostics"
+  scripts:
+    - path: "/scripts/mega-diagnostic.sh"
+      description: "Основной bash-скрипт диагностики"
+    - path: "/scripts/monitoring-analyzer.py"
+      description: "Python анализатор с детальными проверками"
+  templates:
+    - path: "/templates/docker-compose.yml"
+      description: "Готовый stack мониторинга"
+  ci_cd:
+    - path: "/ci-cd/gitlab-ci.yml"
+      description: "GitLab CI пайплайн с диагностикой"
+
+related_examples:
+  base_path: "/examples/monitoring-diagnostics"
+  demo:
+    - path: "/quick-start.sh"
+      description: "Интерактивная демонстрация"
+
+target_audience:
+  - "DevOps Engineers"
+  - "System Administrators"
+  - "SRE Engineers"
+  - "Infrastructure Engineers"
+  - "Platform Engineers"
+
+prerequisites:
+  - "Базовые знания Linux"
+  - "Опыт работы с Docker"
+  - "Понимание основ мониторинга"
+
+learning_outcomes:
+  - "Проведение комплексной диагностики инфраструктуры"
+  - "Автоматизация проверок готовности к мониторингу"
+  - "Интеграция диагностики в CI/CD"
+  - "Решение типичных проблем развертывания"
+
+statistics:
+  incidents_analyzed: 127
+  success_rate: "95%"
+  time_savings: "80%"
+  roi_percentage: "1025%"
+
+tools_used:
+  - name: "Bash"
+    version: "4.0+"
+  - name: "Python"
+    version: "3.8+"
+  - name: "Docker"
+    version: "20.0+"
+  - name: "Prometheus"
+    version: "2.40+"
+  - name: "Grafana"
+    version: "9.0+"
+
+compatibility:
+  os:
+    - "Ubuntu 20.04/22.04"
+    - "CentOS 7/8"
+    - "RHEL 8/9"
+    - "Debian 11/12"
+  platforms:
+    - "Kubernetes 1.20+"
+    - "Docker Compose"
+    - "Docker Swarm"
+
+publication:
+  created_at: "2025-01-15T10:00:00Z"
+  updated_at: "2025-01-15T10:00:00Z"
+  status: "published"
+  license: "MIT"
+
+seo:
+  keywords:
+    - "мониторинг диагностика"
+    - "prometheus готовность"
+    - "devops автоматизация"
+    - "инфраструктура проверка"
+    - "системное администрирование"
+  description: "Практическое руководство по диагностике инфраструктуры перед развертыванием Prometheus и Grafana. Готовые скрипты, автоматизация, примеры."
+
+social_media:
+  twitter_card: "summary_large_image"
+  og_image: "/assets/monitoring-diagnostics-preview.png"
+  og_description: "Комплексная диагностика инфраструктуры перед развертыванием мониторинга"

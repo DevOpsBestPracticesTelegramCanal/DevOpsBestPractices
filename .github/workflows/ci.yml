@@ -1,0 +1,21 @@
+# .github/workflows/ci.yml
+name: CI Pipeline
+on:
+  pull_request:
+    branches: [main, develop, feature/*, bugfix/*, hotfix/*, ai-suggested/*, docs/*]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: shellcheck scripts/**/*.sh || exit 1
+      - name: Ruff (Python lint)
+        run: ruff check scripts/**/*.py || exit 1
+      - name: YAMLLint
+        run: yamllint templates/**/*.yml || exit 1
+      - name: Markdown Link Check
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: README.md docs/**/*.md
