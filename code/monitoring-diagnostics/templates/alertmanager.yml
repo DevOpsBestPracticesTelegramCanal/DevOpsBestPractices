@@ -1,0 +1,45 @@
+# Alertmanager Configuration
+# GitHub: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices
+# Telegram: @DevOps_best_practices
+
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alertmanager@company.com'
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'web.hook'
+
+receivers:
+  - name: 'web.hook'
+    webhook_configs:
+      - url: 'http://127.0.0.1:5001/'
+        send_resolved: true
+
+  - name: 'email-alerts'
+    email_configs:
+      - to: 'admin@company.com'
+        subject: '[ALERT] {{ .GroupLabels.alertname }}'
+        body: |
+          Alert: {{ .GroupLabels.alertname }}
+          Instance: {{ .CommonAnnotations.instance }}
+          Description: {{ .CommonAnnotations.description }}
+
+  - name: 'slack-alerts'
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts'
+        title: 'Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          Instance: {{ .CommonAnnotations.instance }}
+          Description: {{ .CommonAnnotations.description }}
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'dev', 'instance']

@@ -1,0 +1,24 @@
+# Grafana Datasource Configuration for Prometheus
+# GitHub: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices
+# Telegram: @DevOps_best_practices
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: 2.40.0
+      cacheLevel: 'High'
+      disableMetricsLookup: false
+      incrementalQuerying: false
+      queryTimeout: 60s
+      timeInterval: 15s
+    secureJsonData: {}
