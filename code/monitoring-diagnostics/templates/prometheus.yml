@@ -44,10 +44,10 @@ scrape_configs:
     scrape_interval: 15s
     metrics_path: /metrics
 
-  # Application metrics (example)
-  - job_name: 'app'
+  # Demo Application metrics (Four Golden Signals)
+  - job_name: 'demo-app'
     static_configs:
-      - targets: ['app:8080']
+      - targets: ['demo-app:8080']
     scrape_interval: 5s
     metrics_path: /metrics
     scrape_timeout: 10s

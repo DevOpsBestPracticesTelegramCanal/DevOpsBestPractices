@@ -22,6 +22,7 @@ docker-compose up -d
 | **Alertmanager** | http://localhost:9093 | 9093 | - |
 | **Node Exporter** | http://localhost:9100 | 9100 | - |
 | **Blackbox Exporter** | http://localhost:9115 | 9115 | - |
+| **Demo App** | http://localhost:8080 | 8080 | - |
 
 ### 3. Автоматическая настройка
 

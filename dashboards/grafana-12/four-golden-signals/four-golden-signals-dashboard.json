@@ -1323,8 +1323,8 @@
       {
         "current": {
           "selected": false,
-          "text": "prometheus",
-          "value": "prometheus"
+          "text": "demo-app",
+          "value": "demo-app"
         },
         "datasource": {
           "type": "prometheus",
