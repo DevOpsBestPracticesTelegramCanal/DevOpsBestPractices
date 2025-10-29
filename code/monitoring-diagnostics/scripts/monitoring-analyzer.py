@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-monitoring-analyzer.py - Интеллектуальный анализатор готовности системы к мониторингу
+monitoring-analyzer.py - Анализатор готовности системы к мониторингу
 Версия: 1.0
 Автор: DevOpsBestPractices Team
 GitHub: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices
@@ -451,10 +451,10 @@ def main():
         sys.exit(0 if summary['readiness_score'] >= 60 else 1)
         
     except KeyboardInterrupt:
-        print("\n⛔ Анализ прерван пользователем")
+        print("\n[INTERRUPTED] Анализ прерван пользователем")
         sys.exit(1)
     except Exception as e:
-        print(f"\n💥 Ошибка анализа: {e}")
+        print(f"\n[ERROR] Ошибка анализа: {e}")
         sys.exit(1)
 
 

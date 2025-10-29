@@ -11,14 +11,14 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}🚀 DevOps Best Practices - Monitoring Diagnostics Demo${NC}"
-echo -e "${BLUE}📁 GitHub: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices${NC}"
-echo -e "${BLUE}💬 Telegram: @DevOps_best_practices${NC}"
+echo -e "${BLUE}DevOps Best Practices - Monitoring Diagnostics Demo${NC}"
+echo -e "${BLUE}GitHub: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices${NC}"
+echo -e "${BLUE}Telegram: @DevOps_best_practices${NC}"
 echo ""
 
 # Проверка зависимостей
 check_dependencies() {
-    echo -e "${BLUE}🔍 Проверка зависимостей...${NC}"
+    echo -e "${BLUE}[CHECK] Проверка зависимостей...${NC}"
     
     local deps=("bash" "python3" "docker")
     local missing=()
@@ -30,21 +30,21 @@ check_dependencies() {
     done
     
     if [ ${#missing[@]} -ne 0 ]; then
-        echo -e "${YELLOW}⚠️ Отсутствуют зависимости: ${missing[*]}${NC}"
+        echo -e "${YELLOW}[WARNING] Отсутствуют зависимости: ${missing[*]}${NC}"
         echo "Установите их перед запуском демо"
         exit 1
     fi
     
-    echo -e "${GREEN}✅ Все зависимости установлены${NC}"
+    echo -e "${GREEN}[OK] Все зависимости установлены${NC}"
 }
 
 # Функция демонстрации
 run_demo() {
     echo ""
-    echo -e "${BLUE}📋 Что будет продемонстрировано:${NC}"
-    echo "1. 🔍 Bash-скрипт диагностики (mega-diagnostic.sh)"
-    echo "2. 🐍 Python анализатор (monitoring-analyzer.py)"
-    echo "3. 📊 Отчеты и рекомендации"
+    echo -e "${BLUE}[DEMO] Что будет продемонстрировано:${NC}"
+    echo "1. [BASH] Bash-скрипт диагностики (mega-diagnostic.sh)"
+    echo "2. [PYTHON] Python анализатор (monitoring-analyzer.py)"
+    echo "3. [REPORTS] Отчеты и рекомендации"
     echo ""
     
     read -p "Продолжить? (y/n): " -n 1 -r
@@ -55,7 +55,7 @@ run_demo() {
     fi
     
     echo ""
-    echo -e "${BLUE}🔥 Запуск демонстрации...${NC}"
+    echo -e "${BLUE}[START] Запуск демонстрации...${NC}"
     
     # 1. Bash диагностика
     echo ""
@@ -89,7 +89,7 @@ run_demo() {
     echo -e "${BLUE}3️⃣ Результаты диагностики:${NC}"
     
     if [ -f "diagnostic.log" ]; then
-        echo -e "${GREEN}📄 diagnostic.log создан${NC}"
+        echo -e "${GREEN}[FILE] diagnostic.log создан${NC}"
         echo "Последние 10 строк:"
         tail -10 diagnostic.log
     fi
@@ -144,7 +144,7 @@ cleanup_demo() {
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         rm -f diagnostic.log diagnostic_report.json monitoring_analysis_*.json
-        echo -e "${GREEN}🧹 Файлы демо удалены${NC}"
+        echo -e "${GREEN}[CLEANUP] Файлы демо удалены${NC}"
     fi
 }
 
@@ -156,11 +156,11 @@ main() {
     cleanup_demo
     
     echo ""
-    echo -e "${GREEN}✨ Демо завершено! Спасибо за использование DevOps Best Practices${NC}"
+    echo -e "${GREEN}[COMPLETE] Демо завершено! Спасибо за использование DevOps Best Practices${NC}"
 }
 
 # Обработка прерывания
-trap 'echo -e "\n⛔ Демо прервано пользователем"; exit 1' INT
+trap 'echo -e "\n[INTERRUPTED] Демо прервано пользователем"; exit 1' INT
 
 # Запуск
 main "$@"

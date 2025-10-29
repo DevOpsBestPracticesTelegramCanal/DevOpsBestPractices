@@ -19,19 +19,19 @@ monitoring-diagnostic:
     - apt-get update -qq && apt-get install -y -qq curl wget python3 python3-pip lsof
     - pip3 install --quiet psutil requests
   script:
-    - echo "🔍 Запуск диагностики системы..."
+    - echo "[DIAGNOSTIC] Запуск диагностики системы..."
     - chmod +x ./code/monitoring-diagnostics/scripts/mega-diagnostic.sh
     - ./code/monitoring-diagnostics/scripts/mega-diagnostic.sh
-    - echo "🐍 Запуск Python анализатора..."
+    - echo "[ANALYZER] Запуск Python анализатора..."
     - python3 ./code/monitoring-diagnostics/scripts/monitoring-analyzer.py
     - |
       SCORE=$(grep -o '"readiness_score": [0-9]*' monitoring_analysis_*.json | grep -o '[0-9]*' | head -1)
-      echo "📊 Оценка готовности: $SCORE%"
+      echo "[SCORE] Оценка готовности: $SCORE%"
       if [ "$SCORE" -lt "$READINESS_THRESHOLD" ]; then
-        echo "❌ Система не готова. Оценка: $SCORE% (минимум: $READINESS_THRESHOLD%)"
+        echo "[NOT_READY] Система не готова. Оценка: $SCORE% (минимум: $READINESS_THRESHOLD%)"
         exit 1
       else
-        echo "✅ Система готова к развертыванию!"
+        echo "[READY] Система готова к развертыванию!"
       fi
   artifacts:
     reports:
@@ -54,7 +54,7 @@ test-scripts:
   before_script:
     - pip install pytest pytest-cov
   script:
-    - echo "🧪 Запуск тестов скриптов..."
+    - echo "[TESTS] Запуск тестов скриптов..."
     - python -m pytest code/monitoring-diagnostics/tests/ -v --cov=code/monitoring-diagnostics/scripts/
   coverage: '/TOTAL.+ ([0-9]{1,3}%)/'
   artifacts:
@@ -78,13 +78,13 @@ deploy-monitoring:
   before_script:
     - apk add --no-cache docker-compose curl
   script:
-    - echo "🚀 Развертывание стека мониторинга..."
+    - echo "[DEPLOY] Развертывание стека мониторинга..."
     - cd code/monitoring-diagnostics/templates/
     - docker-compose up -d
-    - echo "⏳ Ожидание запуска сервисов..."
+    - echo "[WAIT] Ожидание запуска сервисов..."
     - sleep 30
   after_script:
-    - echo "📋 Статус контейнеров:"
+    - echo "[STATUS] Статус контейнеров:"
     - docker-compose ps
   environment:
     name: monitoring
@@ -100,30 +100,30 @@ verify-monitoring:
   dependencies:
     - deploy-monitoring
   script:
-    - echo "🔍 Проверка доступности сервисов..."
+    - echo "[VERIFY] Проверка доступности сервисов..."
     - |
       # Проверка Prometheus
-      echo "📊 Проверка Prometheus..."
+      echo "[PROMETHEUS] Проверка Prometheus..."
       curl -f http://localhost:9090/-/healthy || {
-        echo "❌ Prometheus недоступен"
+        echo "[ERROR] Prometheus недоступен"
         exit 1
       }
       
       # Проверка Grafana
-      echo "📈 Проверка Grafana..."
+      echo "[GRAFANA] Проверка Grafana..."
       curl -f http://localhost:3000/api/health || {
-        echo "❌ Grafana недоступен" 
+        echo "[ERROR] Grafana недоступен" 
         exit 1
       }
       
       # Проверка Alertmanager
-      echo "🚨 Проверка Alertmanager..."
+      echo "[ALERTMANAGER] Проверка Alertmanager..."
       curl -f http://localhost:9093/-/healthy || {
-        echo "❌ Alertmanager недоступен"
+        echo "[ERROR] Alertmanager недоступен"
         exit 1
       }
       
-      echo "✅ Все сервисы работают корректно!"
+      echo "[OK] Все сервисы работают корректно!"
   retry:
     max: 3
     when: 
@@ -138,7 +138,7 @@ cleanup-on-failure:
   services:
     - docker:dind
   script:
-    - echo "🧹 Очистка при ошибке развертывания..."
+    - echo "[CLEANUP] Очистка при ошибке развертывания..."
     - cd code/monitoring-diagnostics/templates/
     - docker-compose down -v
     - docker system prune -f
@@ -155,21 +155,19 @@ notify-telegram:
   script:
     - |
       if [ "$CI_JOB_STATUS" = "success" ]; then
-        MESSAGE="✅ Мониторинг успешно развернут в проекте $CI_PROJECT_NAME"
-        EMOJI="🚀"
+        MESSAGE="[SUCCESS] Мониторинг успешно развернут в проекте $CI_PROJECT_NAME"
       else
-        MESSAGE="❌ Ошибка развертывания мониторинга в проекте $CI_PROJECT_NAME"
-        EMOJI="💥"
+        MESSAGE="[FAILED] Ошибка развертывания мониторинга в проекте $CI_PROJECT_NAME"
       fi
       
       curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
         -d chat_id="$TELEGRAM_CHAT_ID" \
-        -d text="$EMOJI $MESSAGE
+        -d text="$MESSAGE
       
-      📁 Проект: $CI_PROJECT_NAME
-      🌿 Ветка: $CI_COMMIT_REF_NAME
-      👤 Автор: $GITLAB_USER_NAME
-      🔗 Pipeline: $CI_PIPELINE_URL"
+      Проект: $CI_PROJECT_NAME
+      Ветка: $CI_COMMIT_REF_NAME
+      Автор: $GITLAB_USER_NAME
+      Pipeline: $CI_PIPELINE_URL"
   variables:
     TELEGRAM_BOT_TOKEN: $TELEGRAM_BOT_TOKEN
     TELEGRAM_CHAT_ID: $TELEGRAM_CHAT_ID
