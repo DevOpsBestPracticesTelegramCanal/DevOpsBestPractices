@@ -1,0 +1,57 @@
+# Four Golden Signals - Demo Queries
+# Примеры PromQL запросов для демонстрации метрик
+
+# === 1. LATENCY (Задержка) ===
+
+# Медианное время ответа (p50)
+histogram_quantile(0.5, http_request_duration_seconds_bucket{job="demo-app"})
+
+# 95-й процентиль задержки
+histogram_quantile(0.95, http_request_duration_seconds_bucket{job="demo-app"})
+
+# 99-й процентиль задержки
+histogram_quantile(0.99, http_request_duration_seconds_bucket{job="demo-app"})
+
+# === 2. TRAFFIC (Трафик) ===
+
+# Requests per second (RPS)
+rate(http_requests_total{job="demo-app"}[5m])
+
+# Общий RPS по всем эндпоинтам
+sum(rate(http_requests_total{job="demo-app"}[5m]))
+
+# RPS по методам HTTP
+sum by (method) (rate(http_requests_total{job="demo-app"}[5m]))
+
+# === 3. ERRORS (Ошибки) ===
+
+# Процент ошибок (Error Rate)
+rate(http_requests_total{job="demo-app",code=~"[45].."}[5m]) / rate(http_requests_total{job="demo-app"}[5m]) * 100
+
+# Количество 5xx ошибок в минуту
+increase(http_requests_total{job="demo-app",code=~"5.."}[1m])
+
+# Количество 4xx ошибок в минуту  
+increase(http_requests_total{job="demo-app",code=~"4.."}[1m])
+
+# === 4. SATURATION (Насыщение) ===
+
+# CPU загрузка (%)
+100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+# Использование памяти (%)
+(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+# Загрузка диска (%)
+100 - (node_filesystem_avail_bytes / node_filesystem_size_bytes * 100)
+
+# === АЛЕРТЫ ===
+
+# Высокая задержка (> 500ms для p95)
+histogram_quantile(0.95, http_request_duration_seconds_bucket{job="demo-app"}) > 0.5
+
+# Высокий процент ошибок (> 5%)
+rate(http_requests_total{job="demo-app",code=~"[45].."}[5m]) / rate(http_requests_total{job="demo-app"}[5m]) > 0.05
+
+# Высокая загрузка CPU (> 80%)
+100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80

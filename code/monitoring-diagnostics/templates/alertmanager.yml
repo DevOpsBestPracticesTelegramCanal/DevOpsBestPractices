@@ -16,21 +16,16 @@ route:
 receivers:
   - name: 'web.hook'
     webhook_configs:
-      - url: 'http://127.0.0.1:5001/'
+      - url: 'http://demo-app:8080/webhook'
         send_resolved: true
 
   - name: 'email-alerts'
     email_configs:
       - to: 'admin@company.com'
-        subject: '[ALERT] {{ .GroupLabels.alertname }}'
-        body: |
-          Alert: {{ .GroupLabels.alertname }}
-          Instance: {{ .CommonAnnotations.instance }}
-          Description: {{ .CommonAnnotations.description }}
 
   - name: 'slack-alerts'
     slack_configs:
-      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
         channel: '#alerts'
         title: 'Alert: {{ .GroupLabels.alertname }}'
         text: |
