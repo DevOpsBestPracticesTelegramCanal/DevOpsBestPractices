@@ -1,22 +1,28 @@
-# 🎯 Four Golden Signals от Google SRE
+# Four Golden Signals Dashboard для Grafana 12
 
-**Четыре ключевые метрики мониторинга:**
+## 📊 Описание
 
-**1. 📊 Latency** — время отклика
-**2. 🚀 Traffic** — нагрузка (RPS)
-**3. ❌ Errors** — ошибки (4xx/5xx)
-**4. 🔄 Saturation** — загруженность ресурсов
+Дашборд для мониторинга приложений по методу **Four Golden Signals** от Google SRE.
 
-## ⚡ Готовое решение
+## 🎯 Метод Four Golden Signals
 
-```bash
-git clone https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices
-cd DevOpsBestPractices/code/monitoring-diagnostics/templates
-docker-compose up -d
-```
+Для каждого сервиса проверяем:
+- **Latency** - время отклика
+- **Traffic** - нагрузка (RPS)
+- **Errors** - частота ошибок
+- **Saturation** - загруженность ресурсов
 
-Grafana: http://localhost:3000 (admin/admin123)
+## 📥 Установка
 
-**Следующая статья**: USE Method
+1. Скопируйте JSON из `four-golden-signals-dashboard.json`
+2. Grafana: **Dashboards → Import**
+3. Вставьте JSON → **Import**
 
-#DevOps #Monitoring #SRE #GoldenSignals
+## 📋 Требования
+
+- **Grafana**: 12.x
+- **Prometheus**: любая версия
+
+## 📝 Автор
+
+DevOps Best Practices
