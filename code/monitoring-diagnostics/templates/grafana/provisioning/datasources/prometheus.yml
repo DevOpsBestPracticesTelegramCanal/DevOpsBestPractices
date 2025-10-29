@@ -11,14 +11,9 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: true
+    uid: prometheus
     jsonData:
       httpMethod: POST
-      manageAlerts: true
-      prometheusType: Prometheus
-      prometheusVersion: 2.40.0
-      cacheLevel: 'High'
-      disableMetricsLookup: false
-      incrementalQuerying: false
-      queryTimeout: 60s
       timeInterval: 15s
+      queryTimeout: 60s
     secureJsonData: {}
