@@ -2,11 +2,11 @@
 
 ## 📊 Описание
 
-Дашборд для мониторинга приложений по методу **Four Golden Signals** от Google SRE.
+Дашборд для мониторинга по методу **Four Golden Signals** от Google SRE.
 
 ## 🎯 Метод Four Golden Signals
 
-Для каждого сервиса проверяем:
+Для каждого сервиса:
 - **Latency** - время отклика
 - **Traffic** - нагрузка (RPS)
 - **Errors** - частота ошибок
@@ -14,15 +14,12 @@
 
 ## 📥 Установка
 
-1. Скопируйте JSON из `four-golden-signals-dashboard.json`
+1. Скопируйте JSON дашборда
 2. Grafana: **Dashboards → Import**
-3. Вставьте JSON → **Import**
+3. Вставьте JSON → Import
 
 ## 📋 Требования
 
-- **Grafana**: 12.x
-- **Prometheus**: любая версия
+**Grafana**: 12.x, **Prometheus**
 
-## 📝 Автор
-
-DevOps Best Practices
+📖 https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices/blob/main/articles/telegram/four-golden-signals/README.md
