@@ -33,7 +33,9 @@ DevOps инженеры, Platform engineers, K8s админы, Docker разра
 
 #news #kubernetes #docker #containers #automation
 
-🔗 [Подробнее о системе](https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices/tree/main/container-docker-podman/news)
+🔗 [Подробнее о системе][news-system]
+
+[news-system]: https://github.com/DevOpsBestPracticesTelegramCanal/DevOpsBestPractices/tree/main/container-docker-podman/news
 ```
 
 ## 📊 Метрики анонса

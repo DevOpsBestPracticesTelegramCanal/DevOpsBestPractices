@@ -60,7 +60,9 @@
 🛠️ Улучшения стабильности
 ✅ Production ready
 
-🔗 [Скачать релиз](https://github.com/kubernetes/kubernetes/releases/tag/v1.34.1)  
+🔗 [Скачать релиз][k8s-release]
+
+[k8s-release]: https://github.com/kubernetes/kubernetes/releases/tag/v1.34.1  
 📅 30 октября 2025
 ⭐ Важность: 5/5
 

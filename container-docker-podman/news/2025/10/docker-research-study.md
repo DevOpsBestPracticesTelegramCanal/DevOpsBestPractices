@@ -78,7 +78,9 @@ TheCUBE Research провели независимое экономическо�
 
 Результаты показывают значительное повышение эффективности и положительный ROI от внедрения Docker в enterprise.
 
-🔗 [Читать исследование](https://www.docker.com/blog/thecube-research-economic-validation-of-docker-development-platform/)
+🔗 [Читать исследование][study-link]
+
+[study-link]: https://www.docker.com/blog/thecube-research-economic-validation-of-docker-development-platform/
 📅 30 октября 2025  
 ⭐ Важность: 5/5
 
