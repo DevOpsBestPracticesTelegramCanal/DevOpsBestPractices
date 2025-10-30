@@ -12,6 +12,7 @@
 - [Ready Scripts](./scripts/) - Copy-paste solutions
 - [Industrial DevOps](./industrial/) - Enterprise and industrial solutions
 - [Career Guide](./career/) - DevOps career roadmap
+- [🚀 Container Technologies][container-repo] - Complete container guide (separate repo)
 
 ## 🔥 Featured Content
 
@@ -60,6 +61,12 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🔗 Related Repositories
+
+- **[Container Technologies][container-repo]** - Comprehensive container guide (Docker, Podman, WebAssembly, Edge)
+
+[container-repo]: https://github.com/DevOpsBestPracticesTelegramCanal/ContainerTechnologies
 
 ---
 ⭐ Star this repository if you find it helpful!
