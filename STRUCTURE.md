@@ -8,3 +8,4 @@
 - industrial/ - Enterprise and industrial DevOps
 - career/ - Career development resources
 - templates/ - Production-ready templates
+- **container-docker-podman/** - Container technologies guide (Docker, Podman, WebAssembly, Edge)
