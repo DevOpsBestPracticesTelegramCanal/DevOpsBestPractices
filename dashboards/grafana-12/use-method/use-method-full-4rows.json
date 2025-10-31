@@ -1,0 +1,60 @@
+{
+  "dashboard": {
+    "title": "USE Method - Infrastructure Monitoring",
+    "uid": "use-method-complete",
+    "tags": ["use", "monitoring", "brendan-gregg"],
+    "timezone": "browser",
+    "refresh": "10s",
+    "panels": [
+      {
+        "type": "row",
+        "collapsed": true,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+        "id": 1,
+        "title": "💻 CPU - Processor (3 panels)",
+        "panels": [
+          {"id": 2, "type": "timeseries", "title": "CPU Utilization", "gridPos": {"h": 8, "w": 8, "x": 0, "y": 1}, "targets": [{"expr": "100 - (avg(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "refId": "A"}]},
+          {"id": 3, "type": "timeseries", "title": "CPU Saturation (Load)", "gridPos": {"h": 8, "w": 8, "x": 8, "y": 1}, "targets": [{"expr": "node_load1", "refId": "A"}]},
+          {"id": 4, "type": "stat", "title": "CPU Errors", "gridPos": {"h": 8, "w": 8, "x": 16, "y": 1}, "targets": [{"expr": "0", "refId": "A"}]}
+        ]
+      },
+      {
+        "type": "row",
+        "collapsed": true,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 1},
+        "id": 5,
+        "title": "🧠 Memory - RAM (3 panels)",
+        "panels": [
+          {"id": 6, "type": "timeseries", "title": "Memory Utilization", "gridPos": {"h": 8, "w": 8, "x": 0, "y": 2}, "targets": [{"expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100", "refId": "A"}]},
+          {"id": 7, "type": "timeseries", "title": "Memory Saturation (Swap)", "gridPos": {"h": 8, "w": 8, "x": 8, "y": 2}, "targets": [{"expr": "rate(node_vmstat_pswpin[5m]) + rate(node_vmstat_pswpout[5m])", "refId": "A"}]},
+          {"id": 8, "type": "stat", "title": "Memory Errors", "gridPos": {"h": 8, "w": 8, "x": 16, "y": 2}, "targets": [{"expr": "node_memory_HardwareCorrupted_bytes", "refId": "A"}]}
+        ]
+      },
+      {
+        "type": "row",
+        "collapsed": true,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 2},
+        "id": 9,
+        "title": "💾 Disk I/O - Storage (3 panels)",
+        "panels": [
+          {"id": 10, "type": "timeseries", "title": "Disk Utilization", "gridPos": {"h": 8, "w": 8, "x": 0, "y": 3}, "targets": [{"expr": "rate(node_disk_io_time_seconds_total[5m]) * 100", "refId": "A"}]},
+          {"id": 11, "type": "timeseries", "title": "Disk Saturation (Queue)", "gridPos": {"h": 8, "w": 8, "x": 8, "y": 3}, "targets": [{"expr": "rate(node_disk_io_time_weighted_seconds_total[5m])", "refId": "A"}]},
+          {"id": 12, "type": "stat", "title": "Disk Errors", "gridPos": {"h": 8, "w": 8, "x": 16, "y": 3}, "targets": [{"expr": "rate(node_disk_io_errors_total[5m])", "refId": "A"}]}
+        ]
+      },
+      {
+        "type": "row",
+        "collapsed": true,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 3},
+        "id": 13,
+        "title": "🌐 Network - Interfaces (3 panels)",
+        "panels": [
+          {"id": 14, "type": "timeseries", "title": "Network Utilization (Mbps)", "gridPos": {"h": 8, "w": 8, "x": 0, "y": 4}, "targets": [{"expr": "rate(node_network_receive_bytes_total{device!~\"lo\"}[5m]) * 8 / 1000000", "refId": "A"}]},
+          {"id": 15, "type": "timeseries", "title": "Network Saturation (Drops)", "gridPos": {"h": 8, "w": 8, "x": 8, "y": 4}, "targets": [{"expr": "rate(node_network_receive_drop_total{device!~\"lo\"}[5m])", "refId": "A"}]},
+          {"id": 16, "type": "stat", "title": "Network Errors", "gridPos": {"h": 8, "w": 8, "x": 16, "y": 4}, "targets": [{"expr": "rate(node_network_receive_errs_total{device!~\"lo\"}[5m])", "refId": "A"}]}
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

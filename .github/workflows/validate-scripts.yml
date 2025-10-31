@@ -1,0 +1,23 @@
+name: Validate Scripts
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Validate Bash Scripts
+      run: |
+        for script in scripts/bash/*.sh; do
+          bash -n "$script"
+        done
+    
+    - name: Validate Python Scripts
+      run: |
+        python -m py_compile scripts/python/*.py
