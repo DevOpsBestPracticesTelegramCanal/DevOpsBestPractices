@@ -1,0 +1,194 @@
+{
+  "period": {
+    "start": "2025-08-03",
+    "end": "2025-11-01"
+  },
+  "total_news": 122,
+  "categories": {
+    "community": 36,
+    "news": 36,
+    "kubernetes": 25,
+    "cloud": 15,
+    "docker": 10
+  },
+  "monthly_distribution": {
+    "2025-11": 17,
+    "2025-10": 65,
+    "2025-09": 32,
+    "2025-08": 8
+  },
+  "top_sources": {
+    "The New Stack Kubernetes": 26,
+    "Kubernetes Blog": 25,
+    "Dev.to Kubernetes": 12,
+    "Dev.to Docker": 12,
+    "Dev.to Containers": 12,
+    "Docker Blog": 10,
+    "Container Journal": 10,
+    "Azure Blog": 10,
+    "AWS OpenSource": 5
+  },
+  "top_news_by_category": {
+    "community": [
+      [
+        "CNCF [Cloud Native Computing Foundation]: Faster Backups, Less Storage: Unlocking Incremental Backups in KubeVirt - Shelly Kagan",
+        "https://dev.to/scale_youtube/cncf-cloud-native-computing-foundation-faster-backups-less-storage-unlocking-incremental-3a88",
+        "Dev.to Kubernetes",
+        "2025-11-01 08:25:54"
+      ],
+      [
+        "CNCF [Cloud Native Computing Foundation]: Enabling Multi-Cluster Load Balancing with Gateway API and Envoy Gateway",
+        "https://dev.to/scale_youtube/cncf-cloud-native-computing-foundation-enabling-multi-cluster-load-balancing-with-gateway-api-843",
+        "Dev.to Kubernetes",
+        "2025-11-01 08:25:46"
+      ],
+      [
+        "CNCF [Cloud Native Computing Foundation]: Crossing the border - VM goes on a BGP adventure - Or Mergi",
+        "https://dev.to/scale_youtube/cncf-cloud-native-computing-foundation-crossing-the-border-vm-goes-on-a-bgp-adventure-or-3d91",
+        "Dev.to Kubernetes",
+        "2025-11-01 08:25:37"
+      ],
+      [
+        "CNCF [Cloud Native Computing Foundation]: Decentralized Live Migration Overview - Alexander Wels",
+        "https://dev.to/scale_youtube/cncf-cloud-native-computing-foundation-decentralized-live-migration-overview-alexander-wels-35g7",
+        "Dev.to Kubernetes",
+        "2025-11-01 08:25:27"
+      ],
+      [
+        "CNCF [Cloud Native Computing Foundation]: Welcome to KubeVirt Summit 2025!",
+        "https://dev.to/scale_youtube/cncf-cloud-native-computing-foundation-welcome-to-kubevirt-summit-2025-1c36",
+        "Dev.to Kubernetes",
+        "2025-11-01 08:25:07"
+      ]
+    ],
+    "news": [
+      [
+        "KAITO and KubeFleet: Projects Solving AI Inference at Scale",
+        "https://thenewstack.io/kaito-and-kubefleet-projects-solving-ai-inference-at-scale/",
+        "The New Stack Kubernetes",
+        "2025-10-31 17:00:15"
+      ],
+      [
+        "How To Use Warp’s Agentic Programming To Manage Kubernetes Clusters",
+        "https://thenewstack.io/how-to-use-warps-agentic-programming-to-manage-kubernetes-clusters/",
+        "The New Stack Kubernetes",
+        "2025-10-31 14:00:29"
+      ],
+      [
+        "How Cover Whale Scaled Its Developer Platform Beyond an MVP",
+        "https://thenewstack.io/how-cover-whale-scaled-its-developer-platform-beyond-an-mvp/",
+        "The New Stack Kubernetes",
+        "2025-10-31 12:00:42"
+      ],
+      [
+        "Beyond Speed: Why Your Next App Must Be Multi-Architecture",
+        "https://thenewstack.io/beyond-speed-why-your-next-app-must-be-multi-architecture/",
+        "The New Stack Kubernetes",
+        "2025-10-30 15:00:50"
+      ],
+      [
+        "AI Agents Power Cloud-Native Transformation",
+        "https://cloudnativenow.com/social-facebook/ai-agents-power-cloud-native-transformation/",
+        "Container Journal",
+        "2025-10-30 12:25:34"
+      ]
+    ],
+    "kubernetes": [
+      [
+        "7 Common Kubernetes Pitfalls (and How I Learned to Avoid Them)",
+        "https://kubernetes.io/blog/2025/10/20/seven-kubernetes-pitfalls-and-how-to-avoid/",
+        "Kubernetes Blog",
+        "2025-10-20 08:30:00"
+      ],
+      [
+        "Spotlight on Policy Working Group",
+        "https://kubernetes.io/blog/2025/10/18/wg-policy-spotlight-2025/",
+        "Kubernetes Blog",
+        "2025-10-18 00:00:00"
+      ],
+      [
+        "Introducing Headlamp Plugin for Karpenter - Scaling and Visibility",
+        "https://kubernetes.io/blog/2025/10/06/introducing-headlamp-plugin-for-karpenter/",
+        "Kubernetes Blog",
+        "2025-10-06 00:00:00"
+      ],
+      [
+        "Announcing Changed Block Tracking API support (alpha)",
+        "https://kubernetes.io/blog/2025/09/25/csi-changed-block-tracking/",
+        "Kubernetes Blog",
+        "2025-09-25 05:00:00"
+      ],
+      [
+        "Kubernetes v1.34: Pod Level Resources Graduated to Beta",
+        "https://kubernetes.io/blog/2025/09/22/kubernetes-v1-34-pod-level-resources/",
+        "Kubernetes Blog",
+        "2025-09-22 10:30:00"
+      ]
+    ],
+    "cloud": [
+      [
+        "Building the future together: Microsoft and NVIDIA announce AI advancements at GTC DC",
+        "https://azure.microsoft.com/en-us/blog/building-the-future-together-microsoft-and-nvidia-announce-ai-advancements-at-gtc-dc/",
+        "Azure Blog",
+        "2025-10-28 18:30:00"
+      ],
+      [
+        "Introducing Agent HQ: Any agent, any way you work",
+        "https://github.blog/news-insights/company-news/welcome-home-agents/?utm_source=MSFT-day1-blog&utm_medium=social&utm_campaign=universe25",
+        "Azure Blog",
+        "2025-10-28 16:38:00"
+      ],
+      [
+        "Fully managed cloud-to-cloud transfers with Azure Storage Mover",
+        "https://azure.microsoft.com/en-us/blog/fully-managed-cloud-to-cloud-transfers-with-azure-storage-mover/",
+        "Azure Blog",
+        "2025-10-23 16:00:00"
+      ],
+      [
+        "Microsoft named a Leader in the 2025 Gartner® Magic Quadrant™ for Distributed Hybrid Infrastructure",
+        "https://azure.microsoft.com/en-us/blog/microsoft-named-a-leader-in-the-2025-gartner-magic-quadrant-for-distributed-hybrid-infrastructure/",
+        "Azure Blog",
+        "2025-10-22 16:00:00"
+      ],
+      [
+        "Introducing CLI Agent Orchestrator: Transforming Developer CLI Tools into a Multi-Agent Powerhouse",
+        "https://aws.amazon.com/blogs/opensource/introducing-cli-agent-orchestrator-transforming-developer-cli-tools-into-a-multi-agent-powerhouse/",
+        "AWS OpenSource",
+        "2025-10-21 17:09:26"
+      ]
+    ],
+    "docker": [
+      [
+        "Security Doesn’t Have to Hurt",
+        "https://www.docker.com/blog/security-shadow-it-collaboration/",
+        "Docker Blog",
+        "2025-10-31 13:00:00"
+      ],
+      [
+        "Mr. Bones: A Pirate-Voiced Halloween Chatbot Powered by Docker Model Runner",
+        "https://www.docker.com/blog/talking-skeleton-docker-llm/",
+        "Docker Blog",
+        "2025-10-31 12:17:21"
+      ],
+      [
+        "theCUBE Research economic validation of Docker’s development platform",
+        "https://www.docker.com/blog/thecube-research-economic-validation-of-docker-development-platform/",
+        "Docker Blog",
+        "2025-10-30 11:46:28"
+      ],
+      [
+        "How to add MCP Servers to Claude Desktop with Docker MCP Toolkit",
+        "https://www.docker.com/blog/connect-mcp-servers-to-claude-desktop-with-mcp-toolkit/",
+        "Docker Blog",
+        "2025-10-27 13:00:00"
+      ],
+      [
+        "Docker Hub Incident Report – October 20, 2025",
+        "https://www.docker.com/blog/docker-hub-incident-report-october-20-2025/",
+        "Docker Blog",
+        "2025-10-24 23:09:23"
+      ]
+    ]
+  },
+  "generated_at": "2025-11-01 12:00:15"
+}
