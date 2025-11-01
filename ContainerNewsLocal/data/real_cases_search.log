@@ -1,0 +1,7 @@
+2025-10-31 16:09:10,843 - __main__ - ERROR - ќшибка в демонстрации: 'charmap' codec can't encode character '\U0001f50d' in position 0: character maps to <undefined>
+2025-10-31 16:16:05,843 - real_cases_searcher - INFO - RealCasesSearcher инициализирован
+2025-10-31 16:16:05,846 - real_cases_searcher - INFO - RealCasesSearcher инициализирован
+2025-10-31 16:16:05,846 - web_integrated_searcher - INFO - ѕоиск с веб-инструментами: kubernetes production banking
+2025-10-31 16:16:06,856 - web_integrated_searcher - INFO - ѕоиск с веб-инструментами: docker enterprise deployment
+2025-10-31 16:16:07,860 - web_integrated_searcher - INFO - ѕоиск с веб-инструментами: kubernetes банк внедрение
+2025-10-31 16:16:08,882 - real_cases_searcher - INFO - Ёкспортировано 2 кейсов в C:\Users\serga\ContainerTechnologies\real-world-cases

@@ -1,0 +1,3 @@
+2025-11-01 09:02:25,875 - INFO - »нициализирован исторический сборщик дл€ 3 мес€цев
+2025-11-01 09:03:26,222 - WARNING - RSS feed может быть некорректным: https://cloud.google.com/blog/products/containers-kubernetes/rss
+2025-11-01 09:04:03,519 - ERROR - ќшибка сети при запросе https://dev.to/feed/tag/container: HTTPSConnectionPool(host='dev.to', port=443): Read timed out. (read timeout=30)

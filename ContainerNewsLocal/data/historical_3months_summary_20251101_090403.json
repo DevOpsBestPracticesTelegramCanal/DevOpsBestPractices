@@ -1,0 +1,29 @@
+{
+  "2025-08": {
+    "month_name": "Август",
+    "year": 2025,
+    "month": 8,
+    "total_news": 0,
+    "categories": {},
+    "content_types": {},
+    "top_news": []
+  },
+  "2025-09": {
+    "month_name": "Сентябрь",
+    "year": 2025,
+    "month": 9,
+    "total_news": 0,
+    "categories": {},
+    "content_types": {},
+    "top_news": []
+  },
+  "2025-10": {
+    "month_name": "Октябрь",
+    "year": 2025,
+    "month": 10,
+    "total_news": 0,
+    "categories": {},
+    "content_types": {},
+    "top_news": []
+  }
+}

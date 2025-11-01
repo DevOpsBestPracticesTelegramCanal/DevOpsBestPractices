@@ -1,0 +1,232 @@
+2025-10-30 15:23:31,254 - news_aggregator - INFO - Р‘Р°Р·Р° РґР°РЅРЅС‹С… РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅР°: data/container_news.db
+2025-10-30 15:23:31,254 - news_aggregator - INFO - Р—Р°РіСЂСѓР¶РµРЅРѕ 62 RSS РёСЃС‚РѕС‡РЅРёРєРѕРІ
+2025-10-30 15:23:31,255 - news_aggregator - INFO - ContainerNewsAggregator РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ
+2025-10-30 15:23:31,255 - news_aggregator - INFO - рџљЂ Р—Р°РїСѓСЃРє С†РёРєР»Р° СЃР±РѕСЂР° РЅРѕРІРѕСЃС‚РµР№ Container Technologies
+2025-10-30 15:23:31,255 - news_aggregator - INFO - РќР°С‡РёРЅР°СЋ СЃР±РѕСЂ РЅРѕРІРѕСЃС‚РµР№ РёР· 62 РёСЃС‚РѕС‡РЅРёРєРѕРІ
+2025-10-30 15:23:31,256 - news_aggregator - INFO - [1/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://kubernetes.io/feed.xml
+2025-10-30 15:23:32,344 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://kubernetes.io/feed.xml: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:23:32,366 - news_aggregator - INFO - [2/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/kubernetes/kubernetes/releases.atom
+2025-10-30 15:23:33,177 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/kubernetes/kubernetes/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:23:33,200 - news_aggregator - INFO - [3/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/kubernetes/minikube/releases.atom
+2025-10-30 15:23:34,864 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/kubernetes/minikube/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:23:34,891 - news_aggregator - INFO - [4/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/kubernetes-sigs/kind/releases.atom
+2025-10-30 15:23:36,173 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/kubernetes-sigs/kind/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:23:36,199 - news_aggregator - INFO - [5/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/k3s-io/k3s/releases.atom
+2025-10-30 15:23:36,971 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/k3s-io/k3s/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:23:36,995 - news_aggregator - INFO - [6/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/k0sproject/k0s/releases.atom
+2025-10-30 15:24:07,032 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/k0sproject/k0s/releases.atom: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /k0sproject/k0s/releases.atom (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b6123580>, 'Connection to github.com timed out. (connect timeout=30)'))
+2025-10-30 15:24:07,060 - news_aggregator - INFO - [7/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/kubeedge/kubeedge/releases.atom
+2025-10-30 15:24:07,601 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/kubeedge/kubeedge/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:24:07,638 - news_aggregator - INFO - [8/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://www.docker.com/blog/feed/
+2025-10-30 15:24:08,249 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://www.docker.com/blog/feed/: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:24:08,284 - news_aggregator - INFO - [9/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/docker/docker-ce/releases.atom
+2025-10-30 15:24:10,268 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/docker/docker-ce/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:24:10,294 - news_aggregator - INFO - [10/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/docker/cli/releases.atom
+2025-10-30 15:24:10,881 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/docker/cli/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:24:10,909 - news_aggregator - INFO - [11/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/moby/moby/releases.atom
+2025-10-30 15:24:12,088 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/moby/moby/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:24:12,114 - news_aggregator - INFO - [12/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/docker/compose/releases.atom
+2025-10-30 15:24:42,129 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/docker/compose/releases.atom: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /docker/compose/releases.atom (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b6123370>, 'Connection to github.com timed out. (connect timeout=30)'))
+2025-10-30 15:24:42,150 - news_aggregator - INFO - [13/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/docker/buildx/releases.atom
+2025-10-30 15:25:12,211 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/docker/buildx/releases.atom: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /docker/buildx/releases.atom (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b61216c0>, 'Connection to github.com timed out. (connect timeout=30)'))
+2025-10-30 15:25:12,236 - news_aggregator - INFO - [14/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/containers/podman/releases.atom
+2025-10-30 15:25:43,250 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/containers/podman/releases.atom: HTTPSConnectionPool(host='github.com', port=443): Read timed out.
+2025-10-30 15:25:43,273 - news_aggregator - INFO - [15/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/containers/buildah/releases.atom
+2025-10-30 15:25:45,367 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/containers/buildah/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:45,392 - news_aggregator - INFO - [16/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/containers/skopeo/releases.atom
+2025-10-30 15:25:46,504 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/containers/skopeo/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:46,529 - news_aggregator - INFO - [17/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/cri-o/cri-o/releases.atom
+2025-10-30 15:25:47,645 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/cri-o/cri-o/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:47,676 - news_aggregator - INFO - [18/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/containerd/containerd/releases.atom
+2025-10-30 15:25:48,898 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/containerd/containerd/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:48,939 - news_aggregator - INFO - [19/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/opencontainers/runc/releases.atom
+2025-10-30 15:25:50,020 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/opencontainers/runc/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:50,042 - news_aggregator - INFO - [20/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/opencontainers/image-spec/releases.atom
+2025-10-30 15:25:50,779 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/opencontainers/image-spec/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:50,803 - news_aggregator - INFO - [21/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/WasmEdge/WasmEdge/releases.atom
+2025-10-30 15:25:52,404 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/WasmEdge/WasmEdge/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:52,429 - news_aggregator - INFO - [22/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/bytecodealliance/wasmtime/releases.atom
+2025-10-30 15:25:53,263 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/bytecodealliance/wasmtime/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:53,289 - news_aggregator - INFO - [23/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/wasmerio/wasmer/releases.atom
+2025-10-30 15:25:54,049 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/wasmerio/wasmer/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:54,081 - news_aggregator - INFO - [24/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/deislabs/spin/releases.atom
+2025-10-30 15:25:54,499 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/deislabs/spin/releases.atom: 404 Client Error: Not Found for url: https://github.com/deislabs/spin/releases.atom
+2025-10-30 15:25:54,538 - news_aggregator - INFO - [25/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/firecracker-microvm/firecracker/releases.atom
+2025-10-30 15:25:55,275 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/firecracker-microvm/firecracker/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:55,301 - news_aggregator - INFO - [26/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/kata-containers/kata-containers/releases.atom
+2025-10-30 15:25:57,485 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/kata-containers/kata-containers/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:57,514 - news_aggregator - INFO - [27/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/cloud-hypervisor/cloud-hypervisor/releases.atom
+2025-10-30 15:25:58,576 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/cloud-hypervisor/cloud-hypervisor/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:25:58,602 - news_aggregator - INFO - [28/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/cilium/cilium/releases.atom
+2025-10-30 15:26:00,156 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/cilium/cilium/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:00,180 - news_aggregator - INFO - [29/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/falcosecurity/falco/releases.atom
+2025-10-30 15:26:01,048 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/falcosecurity/falco/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:01,078 - news_aggregator - INFO - [30/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/iovisor/bcc/releases.atom
+2025-10-30 15:26:01,735 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/iovisor/bcc/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:01,758 - news_aggregator - INFO - [31/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/sigstore/cosign/releases.atom
+2025-10-30 15:26:02,605 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/sigstore/cosign/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:02,630 - news_aggregator - INFO - [32/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/anchore/grype/releases.atom
+2025-10-30 15:26:03,549 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/anchore/grype/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:03,575 - news_aggregator - INFO - [33/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/aquasecurity/trivy/releases.atom
+2025-10-30 15:26:04,289 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/aquasecurity/trivy/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:04,319 - news_aggregator - INFO - [34/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/grafeas/grafeas/releases.atom
+2025-10-30 15:26:04,858 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/grafeas/grafeas/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:04,885 - news_aggregator - INFO - [35/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/open-policy-agent/opa/releases.atom
+2025-10-30 15:26:05,983 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/open-policy-agent/opa/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:06,006 - news_aggregator - INFO - [36/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/open-policy-agent/gatekeeper/releases.atom
+2025-10-30 15:26:36,042 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/open-policy-agent/gatekeeper/releases.atom: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /open-policy-agent/gatekeeper/releases.atom (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b61183d0>, 'Connection to github.com timed out. (connect timeout=30)'))
+2025-10-30 15:26:36,070 - news_aggregator - INFO - [37/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/istio/istio/releases.atom
+2025-10-30 15:26:36,656 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/istio/istio/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:36,679 - news_aggregator - INFO - [38/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/linkerd/linkerd2/releases.atom
+2025-10-30 15:26:37,894 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/linkerd/linkerd2/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:37,919 - news_aggregator - INFO - [39/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/envoyproxy/envoy/releases.atom
+2025-10-30 15:26:38,648 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/envoyproxy/envoy/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:38,673 - news_aggregator - INFO - [40/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/prometheus/prometheus/releases.atom
+2025-10-30 15:26:39,490 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/prometheus/prometheus/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:39,524 - news_aggregator - INFO - [41/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/grafana/grafana/releases.atom
+2025-10-30 15:26:40,775 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/grafana/grafana/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:40,800 - news_aggregator - INFO - [42/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/jaegertracing/jaeger/releases.atom
+2025-10-30 15:26:41,625 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/jaegertracing/jaeger/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:41,652 - news_aggregator - INFO - [43/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/open-telemetry/opentelemetry-collector/releases.atom
+2025-10-30 15:26:42,505 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/open-telemetry/opentelemetry-collector/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:42,527 - news_aggregator - INFO - [44/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/kubeflow/kubeflow/releases.atom
+2025-10-30 15:26:43,335 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/kubeflow/kubeflow/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:43,357 - news_aggregator - INFO - [45/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/NVIDIA/k8s-device-plugin/releases.atom
+2025-10-30 15:26:44,124 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/NVIDIA/k8s-device-plugin/releases.atom: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:26:44,146 - news_aggregator - INFO - [46/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://blog.sigstore.dev/feed.xml
+2025-10-30 15:26:44,747 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://blog.sigstore.dev/feed.xml: 404 Client Error: Not Found for url: https://blog.sigstore.dev/feed.xml
+2025-10-30 15:26:44,804 - news_aggregator - INFO - [47/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://sysdig.com/feed/
+2025-10-30 15:27:15,643 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://sysdig.com/feed/: HTTPSConnectionPool(host='www.sysdig.com', port=443): Max retries exceeded with url: /feed (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b613a020>, 'Connection to www.sysdig.com timed out. (connect timeout=30)'))
+2025-10-30 15:27:15,667 - news_aggregator - INFO - [48/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://www.cncf.io/feed/
+2025-10-30 15:27:45,764 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://www.cncf.io/feed/: HTTPSConnectionPool(host='www.cncf.io', port=443): Max retries exceeded with url: /feed/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x77f0b613a830>: Failed to establish a new connection: [Errno 101] Network is unreachable'))
+2025-10-30 15:27:45,794 - news_aggregator - INFO - [49/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://blog.docker.com/feed/
+2025-10-30 15:29:45,944 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://blog.docker.com/feed/: HTTPSConnectionPool(host='blog.docker.com', port=443): Max retries exceeded with url: /feed/ (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x77f0b613b0a0>: Failed to establish a new connection: [Errno 101] Network is unreachable'))
+2025-10-30 15:29:45,967 - news_aggregator - INFO - [50/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://habr.com/ru/rss/search/?q=docker+podman+РєРѕРЅС‚РµР№РЅРµСЂС‹&target_type=posts
+2025-10-30 15:30:16,025 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://habr.com/ru/rss/search/?q=docker+podman+РєРѕРЅС‚РµР№РЅРµСЂС‹&target_type=posts: HTTPSConnectionPool(host='habr.com', port=443): Max retries exceeded with url: /ru/rss/search/?q=docker+podman+%D0%BA%D0%BE%D0%BD%D1%82%D0%B5%D0%B9%D0%BD%D0%B5%D1%80%D1%8B&target_type=posts (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b640fc10>, 'Connection to habr.com timed out. (connect timeout=30)'))
+2025-10-30 15:30:16,047 - news_aggregator - INFO - [51/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://habr.com/ru/rss/search/?q=kubernetes+k8s&target_type=posts
+2025-10-30 15:30:46,062 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://habr.com/ru/rss/search/?q=kubernetes+k8s&target_type=posts: HTTPSConnectionPool(host='habr.com', port=443): Max retries exceeded with url: /ru/rss/search/?q=kubernetes+k8s&target_type=posts (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b613aaa0>, 'Connection to habr.com timed out. (connect timeout=30)'))
+2025-10-30 15:30:46,086 - news_aggregator - INFO - [52/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://habr.com/ru/rss/search/?q=webassembly+wasm&target_type=posts
+2025-10-30 15:31:16,125 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://habr.com/ru/rss/search/?q=webassembly+wasm&target_type=posts: HTTPSConnectionPool(host='habr.com', port=443): Max retries exceeded with url: /ru/rss/search/?q=webassembly+wasm&target_type=posts (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b613a230>, 'Connection to habr.com timed out. (connect timeout=30)'))
+2025-10-30 15:31:16,153 - news_aggregator - INFO - [53/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://dev.to/feed/tag/docker
+2025-10-30 15:31:46,719 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://dev.to/feed/tag/docker: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:31:46,745 - news_aggregator - INFO - [54/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://dev.to/feed/tag/kubernetes
+2025-10-30 15:33:17,350 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://dev.to/feed/tag/kubernetes: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:33:17,380 - news_aggregator - INFO - [55/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://dev.to/feed/tag/containers
+2025-10-30 15:33:18,647 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://dev.to/feed/tag/containers: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:33:18,670 - news_aggregator - INFO - [56/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://dev.to/feed/tag/webassembly
+2025-10-30 15:33:19,741 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://dev.to/feed/tag/webassembly: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:33:19,775 - news_aggregator - INFO - [57/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://dev.to/feed/tag/podman
+2025-10-30 15:34:20,714 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://dev.to/feed/tag/podman: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:34:20,740 - news_aggregator - INFO - [58/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://aws.amazon.com/blogs/containers/feed/
+2025-10-30 15:34:21,651 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://aws.amazon.com/blogs/containers/feed/: can't subtract offset-naive and offset-aware datetimes
+2025-10-30 15:34:21,676 - news_aggregator - INFO - [59/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://cloud.google.com/blog/products/containers-kubernetes/rss
+2025-10-30 15:34:23,627 - news_aggregator - WARNING - RSS feed РјРѕР¶РµС‚ Р±С‹С‚СЊ РЅРµРєРѕСЂСЂРµРєС‚РЅС‹Рј: https://cloud.google.com/blog/products/containers-kubernetes/rss
+2025-10-30 15:34:23,628 - news_aggregator - INFO - РџРѕР»СѓС‡РµРЅРѕ 0 СЂРµР»РµРІР°РЅС‚РЅС‹С… РЅРѕРІРѕСЃС‚РµР№
+2025-10-30 15:34:24,656 - news_aggregator - INFO - [60/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://azure.microsoft.com/en-us/blog/topics/containers/feed/
+2025-10-30 15:34:26,237 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://azure.microsoft.com/en-us/blog/topics/containers/feed/: 404 Client Error: Not Found for url: https://azure.microsoft.com/en-us/blog/topics/containers/feed/
+2025-10-30 15:34:26,261 - news_aggregator - INFO - [61/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/cncf/toc/releases.atom
+2025-10-30 15:34:26,757 - news_aggregator - INFO - РџРѕР»СѓС‡РµРЅРѕ 0 СЂРµР»РµРІР°РЅС‚РЅС‹С… РЅРѕРІРѕСЃС‚РµР№
+2025-10-30 15:34:27,801 - news_aggregator - INFO - [62/62] РћР±СЂР°Р±Р°С‚С‹РІР°СЋ: https://github.com/opencontainers/runtime-spec/releases.atom
+2025-10-30 15:34:57,844 - news_aggregator - ERROR - РћС€РёР±РєР° РїСЂРё РѕР±СЂР°Р±РѕС‚РєРµ https://github.com/opencontainers/runtime-spec/releases.atom: HTTPSConnectionPool(host='github.com', port=443): Max retries exceeded with url: /opencontainers/runtime-spec/releases.atom (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x77f0b613a620>, 'Connection to github.com timed out. (connect timeout=30)'))
+2025-10-30 15:34:57,892 - news_aggregator - INFO - Р’СЃРµРіРѕ СЃРѕР±СЂР°РЅРѕ 0 РЅРѕРІРѕСЃС‚РµР№
+2025-10-30 15:34:57,893 - news_aggregator - INFO - РЎРѕР±СЂР°РЅРѕ 0 РЅРѕРІРѕСЃС‚РµР№
+2025-10-30 15:34:57,893 - news_aggregator - INFO - вњ… Р¦РёРєР» Р·Р°РІРµСЂС€РµРЅ: СЃРѕР±СЂР°РЅРѕ 0 РЅРѕРІС‹С… РЅРѕРІРѕСЃС‚РµР№
+2025-10-31 03:59:25,828 - __main__ - INFO - База данных инициализирована: data\container_news.db
+2025-10-31 03:59:25,829 - __main__ - INFO - Загружено 101 RSS источников
+2025-10-31 03:59:25,829 - __main__ - INFO - ContainerNewsAggregator инициализирован
+2025-10-31 03:59:25,852 - __main__ - INFO - Начинаю сбор новостей из 101 источников
+2025-10-31 03:59:25,852 - __main__ - INFO - [1/101] Обрабатываю: https://kubernetes.io/feed.xml
+2025-10-31 03:59:27,523 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:28,545 - __main__ - INFO - [2/101] Обрабатываю: https://github.com/kubernetes/kubernetes/releases.atom
+2025-10-31 03:59:29,129 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:30,144 - __main__ - INFO - [3/101] Обрабатываю: https://github.com/kubernetes/minikube/releases.atom
+2025-10-31 03:59:31,357 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:32,376 - __main__ - INFO - [4/101] Обрабатываю: https://github.com/kubernetes-sigs/kind/releases.atom
+2025-10-31 03:59:32,955 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:33,976 - __main__ - INFO - [5/101] Обрабатываю: https://github.com/k3s-io/k3s/releases.atom
+2025-10-31 03:59:37,913 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:38,929 - __main__ - INFO - [6/101] Обрабатываю: https://github.com/k0sproject/k0s/releases.atom
+2025-10-31 03:59:40,118 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:41,129 - __main__ - INFO - [7/101] Обрабатываю: https://github.com/kubeedge/kubeedge/releases.atom
+2025-10-31 03:59:41,606 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:42,616 - __main__ - INFO - [8/101] Обрабатываю: https://www.docker.com/blog/feed/
+2025-10-31 03:59:44,091 - __main__ - INFO - Получено 5 релевантных новостей
+2025-10-31 03:59:45,101 - __main__ - INFO - [9/101] Обрабатываю: https://github.com/docker/docker-ce/releases.atom
+2025-10-31 03:59:48,184 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:49,203 - __main__ - INFO - [10/101] Обрабатываю: https://github.com/docker/cli/releases.atom
+2025-10-31 03:59:49,772 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:50,797 - __main__ - INFO - [11/101] Обрабатываю: https://github.com/moby/moby/releases.atom
+2025-10-31 03:59:52,276 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:53,299 - __main__ - INFO - [12/101] Обрабатываю: https://github.com/docker/compose/releases.atom
+2025-10-31 03:59:54,339 - __main__ - INFO - Получено 1 релевантных новостей
+2025-10-31 03:59:55,354 - __main__ - INFO - [13/101] Обрабатываю: https://github.com/docker/buildx/releases.atom
+2025-10-31 03:59:56,500 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 03:59:57,515 - __main__ - INFO - [14/101] Обрабатываю: https://github.com/containers/podman/releases.atom
+2025-10-31 03:59:58,671 - __main__ - INFO - Получено 1 релевантных новостей
+2025-10-31 03:59:59,690 - __main__ - INFO - [15/101] Обрабатываю: https://github.com/containers/buildah/releases.atom
+2025-10-31 04:00:01,820 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:02,834 - __main__ - INFO - [16/101] Обрабатываю: https://github.com/containers/skopeo/releases.atom
+2025-10-31 04:00:04,853 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:05,864 - __main__ - INFO - [17/101] Обрабатываю: https://github.com/cri-o/cri-o/releases.atom
+2025-10-31 04:00:10,115 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:11,133 - __main__ - INFO - [18/101] Обрабатываю: https://github.com/containerd/containerd/releases.atom
+2025-10-31 04:00:12,122 - __main__ - INFO - Получено 2 релевантных новостей
+2025-10-31 04:00:13,143 - __main__ - INFO - [19/101] Обрабатываю: https://github.com/opencontainers/runc/releases.atom
+2025-10-31 04:00:17,218 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:18,242 - __main__ - INFO - [20/101] Обрабатываю: https://github.com/opencontainers/image-spec/releases.atom
+2025-10-31 04:00:18,955 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:19,974 - __main__ - INFO - [21/101] Обрабатываю: https://github.com/WasmEdge/WasmEdge/releases.atom
+2025-10-31 04:00:22,787 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:23,804 - __main__ - INFO - [22/101] Обрабатываю: https://github.com/bytecodealliance/wasmtime/releases.atom
+2025-10-31 04:00:24,669 - __main__ - INFO - Получено 2 релевантных новостей
+2025-10-31 04:00:25,689 - __main__ - INFO - [23/101] Обрабатываю: https://github.com/wasmerio/wasmer/releases.atom
+2025-10-31 04:00:27,300 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:28,314 - __main__ - INFO - [24/101] Обрабатываю: https://github.com/deislabs/spin/releases.atom
+2025-10-31 04:00:28,699 - __main__ - ERROR - Ошибка при обработке https://github.com/deislabs/spin/releases.atom: 404 Client Error: Not Found for url: https://github.com/deislabs/spin/releases.atom
+2025-10-31 04:00:28,708 - __main__ - INFO - [25/101] Обрабатываю: https://github.com/firecracker-microvm/firecracker/releases.atom
+2025-10-31 04:00:30,403 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:31,424 - __main__ - INFO - [26/101] Обрабатываю: https://github.com/kata-containers/kata-containers/releases.atom
+2025-10-31 04:00:33,308 - __main__ - INFO - Получено 1 релевантных новостей
+2025-10-31 04:00:34,325 - __main__ - INFO - [27/101] Обрабатываю: https://github.com/cloud-hypervisor/cloud-hypervisor/releases.atom
+2025-10-31 04:00:35,530 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:36,555 - __main__ - INFO - [28/101] Обрабатываю: https://github.com/cilium/cilium/releases.atom
+2025-10-31 04:00:37,866 - __main__ - INFO - Получено 3 релевантных новостей
+2025-10-31 04:00:38,879 - __main__ - INFO - [29/101] Обрабатываю: https://github.com/falcosecurity/falco/releases.atom
+2025-10-31 04:00:41,118 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:42,139 - __main__ - INFO - [30/101] Обрабатываю: https://github.com/iovisor/bcc/releases.atom
+2025-10-31 04:00:42,647 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:43,666 - __main__ - INFO - [31/101] Обрабатываю: https://github.com/sigstore/cosign/releases.atom
+2025-10-31 04:00:44,434 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:45,457 - __main__ - INFO - [32/101] Обрабатываю: https://github.com/anchore/grype/releases.atom
+2025-10-31 04:00:46,320 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:47,331 - __main__ - INFO - [33/101] Обрабатываю: https://github.com/aquasecurity/trivy/releases.atom
+2025-10-31 04:00:47,954 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:48,972 - __main__ - INFO - [34/101] Обрабатываю: https://github.com/grafeas/grafeas/releases.atom
+2025-10-31 04:00:49,516 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:50,532 - __main__ - INFO - [35/101] Обрабатываю: https://github.com/open-policy-agent/opa/releases.atom
+2025-10-31 04:00:51,790 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:52,817 - __main__ - INFO - [36/101] Обрабатываю: https://github.com/open-policy-agent/gatekeeper/releases.atom
+2025-10-31 04:00:53,846 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:54,857 - __main__ - INFO - [37/101] Обрабатываю: https://github.com/istio/istio/releases.atom
+2025-10-31 04:00:57,295 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:00:58,311 - __main__ - INFO - [38/101] Обрабатываю: https://github.com/linkerd/linkerd2/releases.atom
+2025-10-31 04:01:03,929 - __main__ - INFO - Получено 1 релевантных новостей
+2025-10-31 04:01:04,950 - __main__ - INFO - [39/101] Обрабатываю: https://github.com/envoyproxy/envoy/releases.atom
+2025-10-31 04:01:05,564 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:01:06,577 - __main__ - INFO - [40/101] Обрабатываю: https://github.com/prometheus/prometheus/releases.atom
+2025-10-31 04:01:09,870 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:01:10,888 - __main__ - INFO - [41/101] Обрабатываю: https://github.com/grafana/grafana/releases.atom
+2025-10-31 04:01:12,380 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:01:13,404 - __main__ - INFO - [42/101] Обрабатываю: https://github.com/jaegertracing/jaeger/releases.atom
+2025-10-31 04:01:14,229 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:01:15,252 - __main__ - INFO - [43/101] Обрабатываю: https://github.com/open-telemetry/opentelemetry-collector/releases.atom
+2025-10-31 04:01:16,009 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:01:17,029 - __main__ - INFO - [44/101] Обрабатываю: https://github.com/kubeflow/kubeflow/releases.atom
+2025-10-31 04:01:17,848 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:01:18,872 - __main__ - INFO - [45/101] Обрабатываю: https://github.com/NVIDIA/k8s-device-plugin/releases.atom
+2025-10-31 04:01:20,652 - __main__ - INFO - Получено 0 релевантных новостей
+2025-10-31 04:01:21,663 - __main__ - INFO - [46/101] Обрабатываю: https://blog.sigstore.dev/feed.xml
+2025-10-31 04:02:37,048 - src.news_aggregator - INFO - База данных инициализирована: data\container_news.db
+2025-10-31 04:02:37,049 - src.news_aggregator - INFO - Загружено 101 RSS источников
+2025-10-31 04:02:37,049 - src.news_aggregator - INFO - ContainerNewsAggregator инициализирован
+2025-10-31 04:02:37,049 - src.news_aggregator - INFO - Загружено 101 RSS источников

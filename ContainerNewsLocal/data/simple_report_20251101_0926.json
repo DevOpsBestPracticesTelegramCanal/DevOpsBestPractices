@@ -1,0 +1,121 @@
+{
+  "2025-08": {
+    "month_name": "Aug",
+    "total": 5,
+    "categories": {
+      "kubernetes": 5
+    },
+    "top_news": [
+      [
+        "Kubernetes v1.34: Finer-Grained Control Over Container Restarts",
+        "https://kubernetes.io/blog/2025/08/29/kubernetes-v1-34-per-container-restart-policy/",
+        "Kubernetes Blog",
+        "2025-08-29 10:30:00"
+      ],
+      [
+        "Kubernetes v1.34: User preferences (kuberc) are available for testing in kubectl 1.34",
+        "https://kubernetes.io/blog/2025/08/28/kubernetes-v1-34-kubectl-kuberc-beta/",
+        "Kubernetes Blog",
+        "2025-08-28 10:30:00"
+      ],
+      [
+        "Kubernetes v1.34: Of Wind & Will (O' WaW)",
+        "https://kubernetes.io/blog/2025/08/27/kubernetes-v1-34-release/",
+        "Kubernetes Blog",
+        "2025-08-27 10:30:00"
+      ],
+      [
+        "Tuning Linux Swap for Kubernetes: A Deep Dive",
+        "https://kubernetes.io/blog/2025/08/19/tuning-linux-swap-for-kubernetes-a-deep-dive/",
+        "Kubernetes Blog",
+        "2025-08-19 10:30:00"
+      ],
+      [
+        "Introducing Headlamp AI Assistant",
+        "https://kubernetes.io/blog/2025/08/07/introducing-headlamp-ai-assistant/",
+        "Kubernetes Blog",
+        "2025-08-07 20:00:00"
+      ]
+    ]
+  },
+  "2025-09": {
+    "month_name": "Sep",
+    "total": 17,
+    "categories": {
+      "kubernetes": 17
+    },
+    "top_news": [
+      [
+        "Announcing Changed Block Tracking API support (alpha)",
+        "https://kubernetes.io/blog/2025/09/25/csi-changed-block-tracking/",
+        "Kubernetes Blog",
+        "2025-09-25 05:00:00"
+      ],
+      [
+        "Kubernetes v1.34: Pod Level Resources Graduated to Beta",
+        "https://kubernetes.io/blog/2025/09/22/kubernetes-v1-34-pod-level-resources/",
+        "Kubernetes Blog",
+        "2025-09-22 10:30:00"
+      ],
+      [
+        "Kubernetes v1.34: Recovery From Volume Expansion Failure (GA)",
+        "https://kubernetes.io/blog/2025/09/19/kubernetes-v1-34-recover-expansion-failure/",
+        "Kubernetes Blog",
+        "2025-09-19 10:30:00"
+      ],
+      [
+        "Kubernetes v1.34: DRA Consumable Capacity",
+        "https://kubernetes.io/blog/2025/09/18/kubernetes-v1-34-dra-consumable-capacity/",
+        "Kubernetes Blog",
+        "2025-09-18 10:30:00"
+      ],
+      [
+        "Kubernetes v1.34: Pods Report DRA Resource Health",
+        "https://kubernetes.io/blog/2025/09/17/kubernetes-v1-34-pods-report-dra-resource-health/",
+        "Kubernetes Blog",
+        "2025-09-17 10:30:00"
+      ]
+    ]
+  },
+  "2025-10": {
+    "month_name": "Oct",
+    "total": 22,
+    "categories": {
+      "community": 9,
+      "docker": 10,
+      "kubernetes": 3
+    },
+    "top_news": [
+      [
+        "Security Doesn’t Have to Hurt",
+        "https://www.docker.com/blog/security-shadow-it-collaboration/",
+        "Docker Blog",
+        "2025-10-31 13:00:00"
+      ],
+      [
+        "Mr. Bones: A Pirate-Voiced Halloween Chatbot Powered by Docker Model Runner",
+        "https://www.docker.com/blog/talking-skeleton-docker-llm/",
+        "Docker Blog",
+        "2025-10-31 12:17:21"
+      ],
+      [
+        "Integrating Airflow, dbt, Postgres and Docker: Building a Modern, Scalable Data Workflow",
+        "https://dev.to/shivangi_varshney_4dfe1c5/integrating-airflow-dbt-postgres-and-docker-building-a-modern-scalable-data-workflow-168a",
+        "Dev.to Docker",
+        "2025-10-31 11:43:48"
+      ],
+      [
+        "VPN, Docker, and a cold coffee",
+        "https://dev.to/a2nof/vpn-docker-and-a-cold-coffee-3la6",
+        "Dev.to Docker",
+        "2025-10-31 09:35:42"
+      ],
+      [
+        "Why Your Docker Ubuntu Container Exits Immediately (and How to Fix It)🐳",
+        "https://dev.to/chaitanyarai3/why-your-docker-ubuntu-container-exits-immediately-and-how-to-fix-it-iim",
+        "Dev.to Docker",
+        "2025-10-31 07:18:38"
+      ]
+    ]
+  }
+}
