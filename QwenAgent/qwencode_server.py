@@ -199,23 +199,72 @@ def config_endpoint():
 
 @app.route('/api/models', methods=['GET'])
 def list_models():
-    """List available Ollama models"""
+    """List available models: Ollama (local) + Claude (API)"""
+    model_list = []
+
+    # 1. Ollama models
     try:
         r = requests.get(f"{agent.config.ollama_url}/api/tags", timeout=5)
         if r.status_code == 200:
-            models = [m['name'] for m in r.json().get('models', [])]
-            return jsonify({
-                "success": True,
-                "models": models,
-                "current": agent.config.model
-            })
+            for m in r.json().get('models', []):
+                model_list.append({
+                    'name': m['name'],
+                    'size': m.get('size', 0),
+                    'modified': m.get('modified_at', ''),
+                    'family': m.get('details', {}).get('family', ''),
+                    'params': m.get('details', {}).get('parameter_size', ''),
+                    'provider': 'ollama'
+                })
     except:
         pass
 
+    # 2. Claude models (shown as optional/paid, always listed for awareness)
+    claude_models = [
+        {'name': 'claude-sonnet-4-20250514', 'params': 'Cloud (paid)', 'provider': 'anthropic', 'family': 'Claude 4'},
+        {'name': 'claude-3-5-sonnet-20241022', 'params': 'Cloud (paid)', 'provider': 'anthropic', 'family': 'Claude 3.5'},
+        {'name': 'claude-3-5-haiku-20241022', 'params': 'Cloud (paid)', 'provider': 'anthropic', 'family': 'Claude 3.5'},
+    ]
+    model_list.extend([{**m, 'size': 0, 'modified': ''} for m in claude_models])
+
+    if not model_list:
+        return jsonify({"success": False, "error": "No models available"})
+
     return jsonify({
-        "success": False,
-        "error": "Cannot connect to Ollama"
+        "success": True,
+        "models": model_list,
+        "current": agent.config.model
     })
+
+
+@app.route('/api/models/switch', methods=['POST'])
+def switch_model():
+    """Switch active model. Claude models auto-fallback to Ollama if no API key."""
+    data = request.json
+    new_model = data.get('model', '')
+    if not new_model:
+        return jsonify({'success': False, 'error': 'No model specified'}), 400
+
+    old_model = agent.config.model
+    warning = None
+
+    # Warn if selecting Claude without API key
+    if new_model.startswith('claude') and not agent.config.anthropic_api_key:
+        warning = "No ANTHROPIC_API_KEY set. Requests will auto-fallback to local Ollama."
+
+    agent.config.model = new_model
+    # Update Ollama fallback model reference (stays local even if main model is Claude)
+    from core.tools_extended import ExtendedTools
+    ExtendedTools.configure_ollama(agent.config.ollama_url, old_model if new_model.startswith('claude') else new_model)
+
+    print(f"  Model switched: {old_model} -> {new_model}" + (f" (warning: {warning})" if warning else ""))
+    result = {
+        'success': True,
+        'old_model': old_model,
+        'new_model': new_model
+    }
+    if warning:
+        result['warning'] = warning
+    return jsonify(result)
 
 
 @app.route('/api/health', methods=['GET'])

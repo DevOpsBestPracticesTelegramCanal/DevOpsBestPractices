@@ -42,6 +42,19 @@ class ExecutionMode:
         return icons.get(mode, "")
 
 
+class LLMProvider:
+    """LLM provider type"""
+    OLLAMA = "ollama"
+    ANTHROPIC = "anthropic"
+
+    @classmethod
+    def detect(cls, model: str) -> str:
+        """Detect provider from model name"""
+        if model.startswith("claude"):
+            return cls.ANTHROPIC
+        return cls.OLLAMA
+
+
 @dataclass
 class QwenCodeConfig:
     """Configuration for QwenCode agent"""
@@ -56,6 +69,13 @@ class QwenCodeConfig:
     execution_mode: str = ExecutionMode.FAST
     auto_escalation: bool = True  # Автоматическая эскалация при timeout
     escalation_timeout: int = 30  # Timeout для эскалации (секунды)
+    # Anthropic Claude API
+    anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
+    anthropic_url: str = "https://api.anthropic.com/v1/messages"
+
+    @property
+    def provider(self) -> str:
+        return LLMProvider.detect(self.model)
 
 
 class QwenCodeAgent:
@@ -123,6 +143,9 @@ Current working directory: {working_dir}
 
     def __init__(self, config: QwenCodeConfig = None):
         self.config = config or QwenCodeConfig()
+
+        # Configure Ollama fallback for tools (so /claude can use local model)
+        ExtendedTools.configure_ollama(self.config.ollama_url, self.config.model)
 
         # Core components
         self.router = HybridRouter()
@@ -302,21 +325,24 @@ Current working directory: {working_dir}
         return 2048      # Unknown, full output
 
     def _call_llm(self, prompt: str, system: str = None) -> Optional[str]:
-        """Call Ollama LLM using generate API (more reliable)"""
+        """Call LLM - routes to Ollama or Anthropic based on model"""
+        if self.config.provider == LLMProvider.ANTHROPIC:
+            return self._call_anthropic(prompt, system)
+        return self._call_ollama(prompt, system)
+
+    def _call_ollama(self, prompt: str, system: str = None) -> Optional[str]:
+        """Call Ollama LLM using generate API"""
         try:
-            # Build full prompt with system context
             full_prompt = ""
             if system:
                 full_prompt = f"System: {system}\n\n"
 
-            # Add conversation history (last 4 exchanges)
             for msg in self.conversation_history[-8:]:
                 role = "User" if msg["role"] == "user" else "Assistant"
                 full_prompt += f"{role}: {msg['content']}\n\n"
 
             full_prompt += f"User: {prompt}\n\nAssistant:"
 
-            # Use DUCS-aware token limit
             num_predict = self._get_num_predict(getattr(self, '_current_ducs', None))
 
             response = requests.post(
@@ -330,21 +356,86 @@ Current working directory: {working_dir}
                         "num_predict": num_predict
                     }
                 },
-                timeout=180  # 3 minutes for complex tasks
+                timeout=180
             )
 
             if response.status_code == 200:
                 return response.json().get("response", "")
-            else:
-                return None
+            return None
 
         except Exception as e:
             if self.config.verbose:
-                print(f"LLM Error: {e}")
+                print(f"Ollama Error: {e}")
             return None
 
+    def _call_anthropic(self, prompt: str, system: str = None) -> Optional[str]:
+        """
+        Call Anthropic Claude API.
+        Falls back to local Ollama if API key is missing, credits exhausted, or request fails.
+        """
+        fallback_reason = None
+
+        if not self.config.anthropic_api_key:
+            fallback_reason = "ANTHROPIC_API_KEY not set"
+        else:
+            try:
+                messages = []
+                for msg in self.conversation_history[-8:]:
+                    messages.append({
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    })
+                messages.append({"role": "user", "content": prompt})
+
+                num_predict = self._get_num_predict(getattr(self, '_current_ducs', None))
+
+                body = {
+                    "model": self.config.model,
+                    "max_tokens": num_predict,
+                    "messages": messages
+                }
+                if system:
+                    body["system"] = system
+
+                response = requests.post(
+                    self.config.anthropic_url,
+                    headers={
+                        "x-api-key": self.config.anthropic_api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json=body,
+                    timeout=180
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    content = data.get("content", [])
+                    if content:
+                        return content[0].get("text", "")
+                    return ""
+                else:
+                    err = response.json().get("error", {}).get("message", response.text)
+                    fallback_reason = f"Anthropic {response.status_code}: {err}"
+
+            except Exception as e:
+                fallback_reason = f"Anthropic error: {e}"
+
+        # --- Fallback to Ollama ---
+        if fallback_reason:
+            if self.config.verbose:
+                print(f"  [FALLBACK] {fallback_reason} → using local Ollama")
+            result = self._call_ollama(prompt, system)
+            if result:
+                return f"[via local model — {fallback_reason}]\n\n{result}"
+            return f"Error: {fallback_reason}. Local Ollama also unavailable."
+
+        return None
+
     def _call_llm_search(self, prompt: str) -> Optional[str]:
-        """Lightweight LLM call for search result analysis - no history, no tools, short output"""
+        """Lightweight LLM call for search result analysis"""
+        if self.config.provider == LLMProvider.ANTHROPIC:
+            return self._call_anthropic(prompt, system="Give concise answers. Be brief.")
         try:
             response = requests.post(
                 f"{self.config.ollama_url}/api/generate",
@@ -369,6 +460,8 @@ Current working directory: {working_dir}
 
     def _call_llm_simple(self, prompt: str, system: str = None) -> str:
         """Simple LLM call for sub-agents"""
+        if self.config.provider == LLMProvider.ANTHROPIC:
+            return self._call_anthropic(prompt, system) or ""
         try:
             response = requests.post(
                 f"{self.config.ollama_url}/api/generate",
@@ -401,7 +494,8 @@ Current working directory: {working_dir}
         'web_fetch': ['url', 'prompt'],
         'web_search': ['query', 'num_results'],
         'notebook_read': ['notebook_path'],
-        'notebook_edit': ['notebook_path', 'cell_index', 'new_source', 'cell_type', 'edit_mode']
+        'notebook_edit': ['notebook_path', 'cell_index', 'new_source', 'cell_type', 'edit_mode'],
+        'claude': ['prompt', 'output_format', 'timeout', 'working_dir', 'model']
     }
 
     def _parse_tool_calls(self, response: str) -> List[Tuple[str, Dict[str, Any]]]:
@@ -553,6 +647,9 @@ Current working directory: {working_dir}
         elif tool_name == "edit":
             return f"Made {result.get('replacements', 0)} replacement(s) in {result.get('file_path', 'file')}"
 
+        elif tool_name == "claude":
+            return result.get("output", "(no output from Claude)")
+
         else:
             return json.dumps(result, indent=2, default=str)
 
@@ -563,14 +660,15 @@ Current working directory: {working_dir}
         if cmd == "/help":
             return {
                 "response": """QwenCode Commands:
-/help        - Show this help
-/plan        - Enter plan mode
-/plan exit   - Exit plan mode
-/plan status - Show plan status
-/tasks       - List tasks
-/stats       - Show statistics
-/clear       - Clear conversation
-/model       - Show current model
+/help             - Show this help
+/plan             - Enter plan mode
+/plan exit        - Exit plan mode
+/plan status      - Show plan status
+/tasks            - List tasks
+/stats            - Show statistics
+/clear            - Clear conversation
+/model            - Show current model
+/claude <task>    - Delegate task to Claude Code CLI
 
 MODE SWITCHING:
 /mode             - Show current mode status
@@ -668,6 +766,17 @@ Use /mode fast|deep|search to switch"""}
         elif cmd == "/escalation off":
             self.config.auto_escalation = False
             return {"response": "[CONFIG] Auto-escalation DISABLED"}
+
+        elif cmd.startswith("/claude "):
+            prompt = user_input.strip()[8:].strip()
+            result = execute_tool("claude", prompt=prompt)
+            response_text = result.get("output", result.get("error", "No response"))
+            provider = result.get("provider", "unknown")
+            cli_note = result.get("cli_note", "")
+            prefix = ""
+            if provider == "ollama_fallback":
+                prefix = f"[Local Ollama: {cli_note}]\n\n"
+            return {"response": prefix + response_text}
 
         elif cmd.startswith("/search "):
             # Direct web search
