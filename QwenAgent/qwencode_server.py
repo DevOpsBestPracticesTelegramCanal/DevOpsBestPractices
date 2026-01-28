@@ -86,6 +86,33 @@ def index():
     return render_template('qwencode_terminal.html')
 
 
+@app.route('/api/test-multiline-edit', methods=['POST'])
+def test_multiline_edit():
+    """Test endpoint: execute a real multiline edit and return result"""
+    from core.tools_extended import ExtendedTools
+    data = request.json or {}
+    result = ExtendedTools.edit(
+        file_path=data.get('file_path', '_test_diff.py'),
+        old_string=data.get('old_string', ''),
+        new_string=data.get('new_string', '')
+    )
+    return jsonify({
+        "success": True,
+        "response": "",
+        "tool_calls": [{
+            "tool": "edit",
+            "params": {"file_path": data.get('file_path'), "old_string": "(multiline)", "new_string": "(multiline)"},
+            "result": result
+        }],
+        "thinking": [],
+        "route_method": "pattern",
+        "iterations": 0,
+        "plan_mode": False,
+        "mode": "fast",
+        "mode_icon": ""
+    })
+
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """Process chat message with mode support"""
@@ -218,14 +245,6 @@ def list_models():
     except:
         pass
 
-    # 2. Claude models (shown as optional/paid, always listed for awareness)
-    claude_models = [
-        {'name': 'claude-sonnet-4-20250514', 'params': 'Cloud (paid)', 'provider': 'anthropic', 'family': 'Claude 4'},
-        {'name': 'claude-3-5-sonnet-20241022', 'params': 'Cloud (paid)', 'provider': 'anthropic', 'family': 'Claude 3.5'},
-        {'name': 'claude-3-5-haiku-20241022', 'params': 'Cloud (paid)', 'provider': 'anthropic', 'family': 'Claude 3.5'},
-    ]
-    model_list.extend([{**m, 'size': 0, 'modified': ''} for m in claude_models])
-
     if not model_list:
         return jsonify({"success": False, "error": "No models available"})
 
@@ -238,33 +257,20 @@ def list_models():
 
 @app.route('/api/models/switch', methods=['POST'])
 def switch_model():
-    """Switch active model. Claude models auto-fallback to Ollama if no API key."""
+    """Switch active Ollama model"""
     data = request.json
     new_model = data.get('model', '')
     if not new_model:
         return jsonify({'success': False, 'error': 'No model specified'}), 400
 
     old_model = agent.config.model
-    warning = None
-
-    # Warn if selecting Claude without API key
-    if new_model.startswith('claude') and not agent.config.anthropic_api_key:
-        warning = "No ANTHROPIC_API_KEY set. Requests will auto-fallback to local Ollama."
-
     agent.config.model = new_model
-    # Update Ollama fallback model reference (stays local even if main model is Claude)
-    from core.tools_extended import ExtendedTools
-    ExtendedTools.configure_ollama(agent.config.ollama_url, old_model if new_model.startswith('claude') else new_model)
-
-    print(f"  Model switched: {old_model} -> {new_model}" + (f" (warning: {warning})" if warning else ""))
-    result = {
+    print(f"  Model switched: {old_model} -> {new_model}")
+    return jsonify({
         'success': True,
         'old_model': old_model,
         'new_model': new_model
-    }
-    if warning:
-        result['warning'] = warning
-    return jsonify(result)
+    })
 
 
 @app.route('/api/health', methods=['GET'])
