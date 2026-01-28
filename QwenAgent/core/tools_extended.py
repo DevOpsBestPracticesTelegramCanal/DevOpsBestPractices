@@ -515,10 +515,53 @@ class ExtendedTools:
                 "success": True,
                 "query": query,
                 "count": len(results),
-                "results": results
+                "results": results,
+                "source": "duckduckgo"
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": str(e), "source": "duckduckgo"}
+
+    @staticmethod
+    def web_search_searxng(query: str, num_results: int = 5,
+                           searxng_url: str = "http://localhost:8888") -> Dict[str, Any]:
+        """
+        Search via local SearXNG instance (JSON API).
+        Falls back gracefully if SearXNG is not running.
+        """
+        try:
+            response = requests.get(
+                f"{searxng_url}/search",
+                params={
+                    "q": query,
+                    "format": "json",
+                    "engines": "google,bing,duckduckgo"
+                },
+                timeout=15
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            results = []
+            for item in data.get("results", [])[:num_results]:
+                results.append({
+                    "title": item.get("title", ""),
+                    "snippet": item.get("content", ""),
+                    "url": item.get("url", "")
+                })
+
+            return {
+                "success": True,
+                "query": query,
+                "count": len(results),
+                "results": results,
+                "source": "searxng"
+            }
+        except requests.exceptions.ConnectionError:
+            return {"success": False, "error": "SearXNG not available (connection refused)", "source": "searxng"}
+        except requests.exceptions.Timeout:
+            return {"success": False, "error": "SearXNG timeout", "source": "searxng"}
+        except Exception as e:
+            return {"success": False, "error": str(e), "source": "searxng"}
 
     @staticmethod
     def notebook_read(notebook_path: str) -> Dict[str, Any]:
@@ -748,6 +791,11 @@ EXTENDED_TOOL_REGISTRY = {
         "func": ExtendedTools.web_search,
         "description": "Search the web using DuckDuckGo",
         "params": ["query", "num_results?"]
+    },
+    "web_search_searxng": {
+        "func": ExtendedTools.web_search_searxng,
+        "description": "Search via local SearXNG instance",
+        "params": ["query", "num_results?", "searxng_url?"]
     },
     "notebook_read": {
         "func": ExtendedTools.notebook_read,

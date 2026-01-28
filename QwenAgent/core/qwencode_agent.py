@@ -57,6 +57,9 @@ class QwenCodeConfig:
     execution_mode: str = ExecutionMode.FAST
     auto_escalation: bool = True  # Автоматическая эскалация при timeout
     escalation_timeout: int = 30  # Timeout для эскалации (секунды)
+    # Search backend: "auto" | "duckduckgo" | "searxng"
+    search_backend: str = "auto"
+    searxng_url: str = "http://localhost:8888"
 
 
 class QwenCodeAgent:
@@ -1099,40 +1102,67 @@ Use /mode fast|deep|search to switch"""}
 
     def web_search(self, query: str) -> Dict[str, Any]:
         """
-        Поиск в интернете для DEEP SEARCH режима
-        Использует DuckDuckGo HTML parsing (полноценный веб-поиск)
-        Falls back to SWECAS cache when search times out.
+        Поиск в интернете для DEEP SEARCH режима.
+        Fallback chain: configured backend -> alternate backend -> SWECAS cache.
+
+        search_backend config:
+          "auto"       -> SearXNG -> DuckDuckGo -> SWECAS cache
+          "searxng"    -> SearXNG -> DuckDuckGo -> SWECAS cache
+          "duckduckgo" -> DuckDuckGo -> SearXNG -> SWECAS cache
         """
         self.stats["web_searches"] += 1
 
-        try:
-            # Используем ExtendedTools.web_search - работает через HTML парсинг
-            result = ExtendedTools.web_search(query, num_results=5)
+        backend = self.config.search_backend
 
-            if result.get("success"):
-                # Преобразуем формат результатов для совместимости
-                results = []
-                for r in result.get("results", []):
-                    results.append({
-                        "type": "search_result",
-                        "title": r.get("title", ""),
-                        "text": r.get("snippet", ""),
-                        "url": r.get("url", "")
-                    })
+        # Build search order based on config
+        if backend == "searxng":
+            search_order = ["searxng", "duckduckgo"]
+        elif backend == "duckduckgo":
+            search_order = ["duckduckgo", "searxng"]
+        else:  # "auto"
+            search_order = ["searxng", "duckduckgo"]
 
-                return {
-                    "success": True,
-                    "query": query,
-                    "results": results,
-                    "count": len(results)
-                }
-            else:
-                # Fallback to SWECAS cache if search failed and we have a classification
-                return self._try_swecas_cache_fallback(result)
+        last_error = None
 
-        except Exception as e:
-            # Timeout or network error — try SWECAS cache
-            return self._try_swecas_cache_fallback({"error": str(e)})
+        for engine in search_order:
+            try:
+                if engine == "searxng":
+                    result = ExtendedTools.web_search_searxng(
+                        query, num_results=5, searxng_url=self.config.searxng_url
+                    )
+                else:
+                    result = ExtendedTools.web_search(query, num_results=5)
+
+                if result.get("success"):
+                    # Normalize result format
+                    results = []
+                    for r in result.get("results", []):
+                        results.append({
+                            "type": "search_result",
+                            "title": r.get("title", ""),
+                            "text": r.get("snippet", ""),
+                            "url": r.get("url", "")
+                        })
+
+                    return {
+                        "success": True,
+                        "query": query,
+                        "results": results,
+                        "count": len(results),
+                        "source": result.get("source", engine)
+                    }
+                else:
+                    last_error = result.get("error", f"{engine} failed")
+                    if self.config.verbose:
+                        print(f"[SEARCH] {engine} failed: {last_error}, trying next...")
+
+            except Exception as e:
+                last_error = str(e)
+                if self.config.verbose:
+                    print(f"[SEARCH] {engine} exception: {last_error}, trying next...")
+
+        # All backends failed — try SWECAS cache
+        return self._try_swecas_cache_fallback({"error": last_error or "All search backends failed"})
 
     def _try_swecas_cache_fallback(self, failed_result: Dict[str, Any]) -> Dict[str, Any]:
         """Attempt SWECAS cache fallback when web search fails"""

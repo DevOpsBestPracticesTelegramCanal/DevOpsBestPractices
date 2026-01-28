@@ -1,8 +1,10 @@
 {
   "_meta": {
-    "description": "Pre-loaded search patterns per SWECAS category. Used as fallback when DuckDuckGo times out.",
-    "version": "1.0",
-    "date": "2026-01-28"
+    "description": "Pre-loaded search patterns per SWECAS category. Used as fallback when web search times out.",
+    "version": "2.0",
+    "date": "2026-01-28",
+    "categories": 9,
+    "features": ["subcategories", "swebench_refs", "success_rate", "real_world_examples"]
   },
   "100": {
     "query": "Python None check AttributeError fix",
@@ -10,14 +12,51 @@
       "if x is not None:",
       "getattr(obj, 'attr', default_value)",
       "obj and obj.attr",
-      "from typing import Optional"
+      "from typing import Optional",
+      "x = value if value is not None else default",
+      "try: obj.attr except AttributeError: fallback",
+      "hasattr(obj, 'attr') and obj.attr",
+      "result = func() or default_value",
+      "if variable is None: raise ValueError('must not be None')",
+      "Optional[Type] annotation for nullable params"
     ],
     "fix_hints": [
       "Add None check before attribute access",
       "Use getattr with default value",
       "Use Optional type annotation to document nullability",
-      "Guard with 'if variable is not None' before use"
-    ]
+      "Guard with 'if variable is not None' before use",
+      "Check if upstream function can return None on error",
+      "Use 'or' operator for simple default: x = val or default",
+      "Add explicit None guard in constructor __init__",
+      "Replace silent None propagation with early ValueError",
+      "Use hasattr() before dynamic attribute access",
+      "Check if exception handler silently swallows and returns None"
+    ],
+    "subcategories": {
+      "110": {
+        "name": "Missing None guard",
+        "patterns": ["if x is None: raise ValueError", "assert x is not None"],
+        "fix_hints": ["Add explicit None check before first use of variable"]
+      },
+      "111": {
+        "name": "Safe None access",
+        "patterns": ["getattr(obj, 'attr', None)", "obj.attr if obj else None"],
+        "fix_hints": ["Use conditional access or getattr with default"]
+      },
+      "120": {
+        "name": "Uninitialized variable",
+        "patterns": ["variable = None  # initialize", "self.x = x or default"],
+        "fix_hints": ["Ensure variable is initialized before use in all code paths"]
+      },
+      "130": {
+        "name": "None return from function",
+        "patterns": ["return value  # was missing return", "if not result: return default"],
+        "fix_hints": ["Check all return paths — missing return gives implicit None"]
+      }
+    },
+    "swebench_refs": [],
+    "success_rate": 0.0,
+    "real_world_examples": []
   },
   "200": {
     "query": "Python ImportError ModuleNotFoundError fix",
@@ -25,14 +64,46 @@
       "try: import module except ImportError: fallback",
       "from importlib import import_module",
       "sys.path.insert(0, path)",
-      "pip install missing-package"
+      "pip install missing-package",
+      "from __future__ import annotations",
+      "import module; hasattr(module, 'symbol')",
+      "if TYPE_CHECKING: from module import Type",
+      "importlib.util.find_spec('module')",
+      "def lazy_import(): import heavy_module; return heavy_module",
+      "from . import submodule  # relative import fix"
     ],
     "fix_hints": [
       "Add try/except ImportError with fallback",
       "Check if package is in requirements.txt",
       "Fix circular imports by moving import inside function",
-      "Use lazy imports for optional dependencies"
-    ]
+      "Use lazy imports for optional dependencies",
+      "Check sys.path — is the package directory on the path?",
+      "Use importlib.util.find_spec() to check before import",
+      "Move TYPE_CHECKING imports to avoid runtime circular deps",
+      "Verify package version matches expected API (pip show package)",
+      "Use relative imports within packages (from . import X)",
+      "Check __init__.py exists in package directory"
+    ],
+    "subcategories": {
+      "210": {
+        "name": "Missing package",
+        "patterns": ["pip install package", "requirements.txt"],
+        "fix_hints": ["Install missing package or add to requirements.txt"]
+      },
+      "220": {
+        "name": "Circular import",
+        "patterns": ["from __future__ import annotations", "if TYPE_CHECKING:"],
+        "fix_hints": ["Move import inside function or use TYPE_CHECKING guard"]
+      },
+      "230": {
+        "name": "Wrong path/relative import",
+        "patterns": ["sys.path.insert(0, path)", "from . import module"],
+        "fix_hints": ["Fix sys.path or use proper relative imports"]
+      }
+    },
+    "swebench_refs": [],
+    "success_rate": 0.0,
+    "real_world_examples": []
   },
   "300": {
     "query": "Python TypeError expected type mismatch fix",
@@ -40,13 +111,56 @@
       "isinstance(obj, expected_type)",
       "int(value) / str(value) / float(value)",
       "typing.Union[str, bytes]",
-      "if isinstance(x, str): x = x.encode()"
+      "if isinstance(x, str): x = x.encode()",
+      "if isinstance(x, bytes): x = x.decode('utf-8')",
+      "def func(x: Union[str, int]) -> str:",
+      "from typing import overload",
+      "type(obj).__name__ for debugging",
+      "numbers.Number for numeric duck typing",
+      "collections.abc.Mapping instead of dict check"
     ],
     "fix_hints": [
       "Add type check before operation",
       "Add explicit type conversion",
       "Use Union type for parameters accepting multiple types",
-      "Handle string/bytes conversion explicitly"
+      "Handle string/bytes conversion explicitly",
+      "Use isinstance() instead of type() == for inheritance",
+      "Check if API changed return type between versions",
+      "Use Protocol/ABC for structural typing instead of concrete types",
+      "Convert at boundary: accept broad type, normalize internally",
+      "Add @overload decorators for multiple signatures",
+      "Use numbers.Number for numeric type checks (int/float/Decimal)"
+    ],
+    "subcategories": {
+      "310": {
+        "name": "Signature mismatch",
+        "patterns": ["def func(x: ExpectedType):", "@overload"],
+        "fix_hints": ["Update function signature or caller to match expected types"]
+      },
+      "320": {
+        "name": "String/bytes confusion",
+        "patterns": ["x.decode('utf-8')", "x.encode('utf-8')"],
+        "fix_hints": ["Explicitly encode/decode at I/O boundaries"]
+      },
+      "330": {
+        "name": "Container type error",
+        "patterns": ["list(iterable)", "dict(mapping)"],
+        "fix_hints": ["Convert container type explicitly before use"]
+      },
+      "340": {
+        "name": "Numeric type coercion",
+        "patterns": ["int(value)", "float(value)"],
+        "fix_hints": ["Add explicit numeric conversion with error handling"]
+      }
+    },
+    "swebench_refs": ["psf__requests-2317"],
+    "success_rate": 1.0,
+    "real_world_examples": [
+      {
+        "task": "requests-2317",
+        "before": "method = builtin_str(method)",
+        "after": "method = to_native_string(method, 'utf-8')"
+      }
     ]
   },
   "400": {
@@ -55,14 +169,46 @@
       "import warnings; warnings.warn('deprecated', DeprecationWarning)",
       "# Updated: old_func() -> new_func()",
       "if sys.version_info >= (3, 10):",
-      "from packaging.version import Version"
+      "from packaging.version import Version",
+      "functools.wraps(func) for wrapper compatibility",
+      "@deprecated decorator pattern",
+      "shutil.move instead of os.rename (cross-device)",
+      "pathlib.Path methods instead of os.path",
+      "logging.warning() instead of logging.warn()",
+      "collections.abc instead of collections (Python 3.10+)"
     ],
     "fix_hints": [
       "Replace deprecated function with recommended alternative",
       "Add version guard for backward compatibility",
       "Check changelog for migration guide",
-      "Use feature detection instead of version checking when possible"
-    ]
+      "Use feature detection instead of version checking when possible",
+      "Update import paths for renamed modules (e.g., collections.abc)",
+      "Replace removed functions with their modern equivalents",
+      "Add compatibility shim if supporting multiple versions",
+      "Check framework release notes for breaking changes",
+      "Use functools.wraps to preserve function metadata in wrappers",
+      "Test with -W error::DeprecationWarning to catch all warnings"
+    ],
+    "subcategories": {
+      "410": {
+        "name": "Removed API",
+        "patterns": ["# Removed in version X, use Y instead"],
+        "fix_hints": ["Replace with the recommended modern API"]
+      },
+      "420": {
+        "name": "Changed signature",
+        "patterns": ["func(new_param=value)", "# param renamed from X to Y"],
+        "fix_hints": ["Update function call to match new signature"]
+      },
+      "430": {
+        "name": "Renamed module/symbol",
+        "patterns": ["from new_location import symbol"],
+        "fix_hints": ["Update import to new module path"]
+      }
+    },
+    "swebench_refs": [],
+    "success_rate": 0.0,
+    "real_world_examples": []
   },
   "500": {
     "query": "Python input validation ValueError assert replace",
@@ -70,13 +216,56 @@
       "if not valid: raise ValueError('message')",
       "if '.' in name: raise ValueError('dots not allowed')",
       "validate in __init__ before assignment",
-      "raise ValueError instead of assert"
+      "raise ValueError instead of assert",
+      "if not isinstance(x, str): raise TypeError('expected str')",
+      "re.match(pattern, value) or raise ValueError",
+      "len(value) > MAX and raise ValueError('too long')",
+      "if value < 0: raise ValueError('must be non-negative')",
+      "validator function returning bool + descriptive error",
+      "schema validation with jsonschema or pydantic"
     ],
     "fix_hints": [
       "Replace assert with explicit raise ValueError (assert disabled with -O)",
       "Add validation in constructor before state assignment",
       "Place validation check BEFORE the variable is used",
-      "Use descriptive error messages in ValueError"
+      "Use descriptive error messages in ValueError",
+      "Validate at public API boundary, trust internal code",
+      "Use raise ValueError for data validation, TypeError for wrong types",
+      "Chain validation: check type first, then value constraints",
+      "Add validation to property setter for ongoing enforcement",
+      "Prefer whitelisting (allow known good) over blacklisting (block known bad)",
+      "Test both valid and invalid inputs in unit tests"
+    ],
+    "subcategories": {
+      "510": {
+        "name": "Input validation (assert -> raise)",
+        "patterns": ["raise ValueError('invalid input')", "if bad: raise ValueError(msg)"],
+        "fix_hints": ["Replace assert with raise ValueError — assert is disabled with python -O"]
+      },
+      "511": {
+        "name": "Boundary check",
+        "patterns": ["if x < 0: raise ValueError", "if len(s) > MAX: raise"],
+        "fix_hints": ["Add explicit boundary validation before processing"]
+      },
+      "520": {
+        "name": "Format validation",
+        "patterns": ["re.match(pattern, value)", "if not valid_format(x): raise"],
+        "fix_hints": ["Validate format/pattern before use"]
+      },
+      "530": {
+        "name": "Sanitization",
+        "patterns": ["html.escape(user_input)", "shlex.quote(cmd_arg)"],
+        "fix_hints": ["Sanitize user input before passing to sensitive operations"]
+      }
+    },
+    "swebench_refs": ["pallets__flask-4045"],
+    "success_rate": 1.0,
+    "real_world_examples": [
+      {
+        "task": "flask-4045",
+        "before": "assert '.' not in name, 'Blueprint name should not contain dots'",
+        "after": "if '.' in name:\n    raise ValueError(f\"'{name}' is not a valid name. Blueprint names cannot contain dots.\")"
+      }
     ]
   },
   "600": {
@@ -85,14 +274,51 @@
       "if condition:  # was: if not condition:",
       "for i in range(len(items) - 1):  # off-by-one fix",
       "return early pattern to simplify flow",
-      "guard clause before main logic"
+      "guard clause before main logic",
+      "elif instead of separate if (mutually exclusive)",
+      "break/continue in correct loop level",
+      "dict.get(key, default) instead of dict[key]",
+      "any()/all() for collection checks",
+      "operator precedence: (a and b) or c vs a and (b or c)",
+      "short-circuit evaluation order matters"
     ],
     "fix_hints": [
       "Check condition logic — is it inverted?",
       "Check loop boundaries for off-by-one errors",
       "Simplify nested conditions with early returns",
-      "Trace execution path with concrete test values"
-    ]
+      "Trace execution path with concrete test values",
+      "Verify operator precedence in compound conditions",
+      "Check if break/continue applies to correct loop level",
+      "Use truthiness checks carefully: 0, '', [], {} are all falsy",
+      "Test edge cases: empty input, single element, boundary values",
+      "Replace nested if/else with dictionary dispatch or match/case",
+      "Add assert statements during debugging to verify invariants"
+    ],
+    "subcategories": {
+      "610": {
+        "name": "Inverted condition",
+        "patterns": ["if condition:  # was: if not condition:"],
+        "fix_hints": ["Check if boolean condition is accidentally inverted"]
+      },
+      "611": {
+        "name": "Wrong compound condition",
+        "patterns": ["if a and b:  # was: if a or b:"],
+        "fix_hints": ["Verify AND/OR logic with truth table"]
+      },
+      "620": {
+        "name": "Off-by-one / boundary",
+        "patterns": ["range(n) vs range(n+1)", "< vs <="],
+        "fix_hints": ["Test with boundary values: 0, 1, n-1, n"]
+      },
+      "630": {
+        "name": "Error handling logic",
+        "patterns": ["except SpecificError:", "try/except in correct scope"],
+        "fix_hints": ["Catch specific exceptions, not bare except"]
+      }
+    },
+    "swebench_refs": [],
+    "success_rate": 0.0,
+    "real_world_examples": []
   },
   "700": {
     "query": "Python configuration environment variable path fix",
@@ -100,14 +326,51 @@
       "os.environ.get('VAR', 'default')",
       "pathlib.Path instead of string concatenation",
       "config file: .env, config.yaml, settings.py",
-      "os.path.join for cross-platform paths"
+      "os.path.join for cross-platform paths",
+      "dotenv.load_dotenv() for .env files",
+      "configparser.ConfigParser() for .ini files",
+      "json.load(open('config.json'))",
+      "os.path.expanduser('~/.config/app')",
+      "tempfile.gettempdir() for temp paths",
+      "platformdirs for OS-specific config paths"
     ],
     "fix_hints": [
       "Use os.environ.get() with sensible default",
       "Use pathlib.Path for cross-platform path handling",
       "Don't hardcode paths — use config or environment variables",
-      "Check if config differs between dev and CI environments"
-    ]
+      "Check if config differs between dev and CI environments",
+      "Use python-dotenv for local development env vars",
+      "Validate config values at startup, fail fast on bad config",
+      "Use pathlib.Path.resolve() to handle relative paths",
+      "Check for required env vars at startup with clear error messages",
+      "Use os.path.expanduser() for home directory paths",
+      "Separate config loading from config usage (12-factor app)"
+    ],
+    "subcategories": {
+      "710": {
+        "name": "Path handling",
+        "patterns": ["pathlib.Path()", "os.path.join()"],
+        "fix_hints": ["Use pathlib or os.path.join for cross-platform paths"]
+      },
+      "720": {
+        "name": "Environment variable",
+        "patterns": ["os.environ.get('VAR', default)", "load_dotenv()"],
+        "fix_hints": ["Use os.environ.get() with fallback default value"]
+      },
+      "730": {
+        "name": "Config file parsing",
+        "patterns": ["configparser", "yaml.safe_load", "json.load"],
+        "fix_hints": ["Use appropriate parser for config file format"]
+      },
+      "740": {
+        "name": "Test fixture config",
+        "patterns": ["conftest.py", "pytest.fixture", "tmp_path"],
+        "fix_hints": ["Ensure test fixtures don't leak state between tests"]
+      }
+    },
+    "swebench_refs": [],
+    "success_rate": 0.0,
+    "real_world_examples": []
   },
   "800": {
     "query": "Python performance optimization memory leak fix",
@@ -115,14 +378,51 @@
       "list comprehension instead of loop",
       "collections.defaultdict / Counter",
       "functools.lru_cache for memoization",
-      "generators instead of lists for large data"
+      "generators instead of lists for large data",
+      "set lookup instead of list search: O(1) vs O(n)",
+      "__slots__ to reduce memory per instance",
+      "itertools for memory-efficient iteration",
+      "weakref for preventing circular reference leaks",
+      "del large_object after use",
+      "numpy vectorization instead of Python loops"
     ],
     "fix_hints": [
       "Profile before optimizing — use cProfile",
       "Replace nested loops with dict lookups",
       "Use generators/iterators for large datasets",
-      "Add caching for repeated computations"
-    ]
+      "Add caching for repeated computations",
+      "Use set() for O(1) membership testing instead of list",
+      "Use __slots__ on data classes to reduce memory footprint",
+      "Break circular references with weakref",
+      "Use itertools.chain/islice for memory-efficient iteration",
+      "Batch database queries instead of N+1 pattern",
+      "Use collections.Counter for frequency counting"
+    ],
+    "subcategories": {
+      "810": {
+        "name": "Algorithm complexity",
+        "patterns": ["O(n^2) -> O(n log n)", "dict lookup instead of list scan"],
+        "fix_hints": ["Reduce algorithmic complexity with better data structures"]
+      },
+      "820": {
+        "name": "I/O bottleneck",
+        "patterns": ["batch reads", "connection pooling", "buffered I/O"],
+        "fix_hints": ["Batch I/O operations and use connection pooling"]
+      },
+      "830": {
+        "name": "Memory leak",
+        "patterns": ["weakref.ref()", "del object", "gc.collect()"],
+        "fix_hints": ["Break circular references and release large objects"]
+      },
+      "840": {
+        "name": "Cache optimization",
+        "patterns": ["@lru_cache", "@functools.cache", "memoize"],
+        "fix_hints": ["Add memoization for pure functions with repeated calls"]
+      }
+    },
+    "swebench_refs": [],
+    "success_rate": 0.0,
+    "real_world_examples": []
   },
   "900": {
     "query": "Python async await race condition deadlock fix",
@@ -130,13 +430,50 @@
       "await coroutine  # was missing await",
       "async with lock:",
       "asyncio.gather(*tasks)",
-      "threading.Lock() for shared mutable state"
+      "threading.Lock() for shared mutable state",
+      "asyncio.create_task() for fire-and-forget",
+      "asyncio.wait_for(coro, timeout=N)",
+      "threading.Event() for signaling between threads",
+      "queue.Queue() for thread-safe communication",
+      "contextlib.asynccontextmanager for async resources",
+      "asyncio.Semaphore(N) for concurrency limiting"
     ],
     "fix_hints": [
       "Add missing await keyword before coroutine call",
       "Protect shared mutable state with locks",
       "Use asyncio.gather for concurrent tasks",
-      "Check if cleanup runs before async task completes"
-    ]
+      "Check if cleanup runs before async task completes",
+      "Use asyncio.wait_for() to add timeout to coroutines",
+      "Use threading.Event for cross-thread signaling",
+      "Prefer asyncio.Queue over shared lists for async communication",
+      "Use contextlib.asynccontextmanager for async resource cleanup",
+      "Add asyncio.Semaphore to limit concurrent operations",
+      "Use loop.run_in_executor() for blocking calls in async code"
+    ],
+    "subcategories": {
+      "910": {
+        "name": "Missing await",
+        "patterns": ["await coro()", "result = await async_func()"],
+        "fix_hints": ["Add missing await — coroutine was called but not awaited"]
+      },
+      "911": {
+        "name": "Resource cleanup timing",
+        "patterns": ["async with resource:", "try/finally in async"],
+        "fix_hints": ["Ensure async resources are cleaned up with async context manager"]
+      },
+      "920": {
+        "name": "Race condition",
+        "patterns": ["async with lock:", "threading.Lock()"],
+        "fix_hints": ["Protect shared state with appropriate lock type"]
+      },
+      "930": {
+        "name": "Deadlock",
+        "patterns": ["lock ordering", "asyncio.wait_for(timeout=)"],
+        "fix_hints": ["Use consistent lock ordering and add timeouts"]
+      }
+    },
+    "swebench_refs": [],
+    "success_rate": 0.0,
+    "real_world_examples": []
   }
 }

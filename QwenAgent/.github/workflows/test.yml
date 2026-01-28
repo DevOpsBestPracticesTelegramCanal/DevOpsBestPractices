@@ -1,0 +1,42 @@
+name: QwenAgent Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint (syntax check)
+        run: |
+          python -m py_compile core/swecas_classifier.py
+          python -m py_compile core/tools_extended.py
+          python -m py_compile core/cot_engine.py
+          python -m py_compile swebench_tasks/classify_tasks.py
+          python -m py_compile benchmark/ab_runner.py
+
+      - name: Run SWECAS integration tests
+        run: python -m pytest tests/test_swecas_integration.py -v
+
+      - name: Run Flask-4045 tests
+        run: python test_blueprint.py
+        working-directory: swebench_tasks/pallets__flask-4045
+
+      - name: Run requests-2317 tests
+        run: python test_bug.py
+        working-directory: swebench_tasks/psf__requests-2317
+
+      - name: Classify tasks
+        run: python swebench_tasks/classify_tasks.py

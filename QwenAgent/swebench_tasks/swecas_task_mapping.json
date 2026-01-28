@@ -1,0 +1,18 @@
+{
+  "pallets__flask-4045": {
+    "swecas_code": 100,
+    "swecas_name": "Null/None & Value Errors",
+    "confidence": 1.0,
+    "subcategory": 100,
+    "fix_hint": "",
+    "description_used": "Test for pallets/flask#4045: Blueprint name with dot should raise error.\n\nBug: Blueprint names with dots are allowed, but dots are now significant\nfor nested blueprints. Names like \"myapp.frontend\" br"
+  },
+  "psf__requests-2317": {
+    "swecas_code": 200,
+    "swecas_name": "Import & Module / Dependency",
+    "confidence": 0.3,
+    "subcategory": 200,
+    "fix_hint": "",
+    "description_used": "Test for psf/requests#2317: builtin_str(method) bug.\n\nBug: In requests_local/sessions.py, `method = builtin_str(method)` converts\nbinary string b'GET' to literal \"b'GET'\" in Python 3, causing 404 erro"
+  }
+}
