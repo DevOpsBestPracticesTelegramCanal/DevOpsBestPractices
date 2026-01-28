@@ -130,12 +130,25 @@ class ExtendedTools:
 
     @staticmethod
     def write(file_path: str, content: str, **kwargs) -> Dict[str, Any]:
-        """Write content to file. Returns old/new content for diff display."""
+        """Write content to file with safety validation. Returns old/new content for diff display."""
         # Ignore extra kwargs from LLM
         try:
             path = Path(file_path)
 
-            # Read old content if file exists (for diff)
+            # SAFE_WRITE: Syntax validation for Python files
+            if path.suffix.lower() == '.py':
+                try:
+                    compile(content, str(path), 'exec')
+                except SyntaxError as e:
+                    return {
+                        "success": False,
+                        "error": f"Python syntax error — file NOT written: {e.msg} (line {e.lineno})",
+                        "syntax_error": True,
+                        "line": e.lineno,
+                        "offset": e.offset
+                    }
+
+            # Read old content if file exists (for diff + backup + ratio check)
             old_content = ""
             if path.exists():
                 try:
@@ -144,12 +157,30 @@ class ExtendedTools:
                 except:
                     pass
 
+                # Auto-backup before overwriting
+                backup_path = Path(str(path) + '.bak')
+                try:
+                    import shutil
+                    shutil.copy2(path, backup_path)
+                except Exception:
+                    pass  # Non-critical if backup fails
+
+                # Diff ratio warning (informational, does not block write)
+                if old_content:
+                    import difflib
+                    ratio = difflib.SequenceMatcher(None, old_content, content).ratio()
+                    change_ratio = 1.0 - ratio
+                else:
+                    change_ratio = 0.0
+            else:
+                change_ratio = 0.0
+
             path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
 
-            return {
+            result = {
                 "success": True,
                 "file_path": str(path.absolute()),
                 "file": str(path),
@@ -158,6 +189,11 @@ class ExtendedTools:
                 "old_content": old_content,
                 "new_content": content
             }
+
+            if change_ratio > 0.5:
+                result["warning"] = f"Large change detected: {change_ratio:.0%} of file changed. Backup saved to {path.name}.bak"
+
+            return result
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -165,7 +201,7 @@ class ExtendedTools:
     def edit(file_path: str, old_string: str = None, new_string: str = None,
              old_str: str = None, new_str: str = None,
              replace_all: bool = False, **kwargs) -> Dict[str, Any]:
-        """Edit file by replacing text. Returns old/new content for diff display."""
+        """Edit file by replacing text with safety validation. Returns old/new content for diff display."""
         # Normalize parameter names (old_str -> old_string)
         if old_str and not old_string:
             old_string = old_str
@@ -201,6 +237,19 @@ class ExtendedTools:
             else:
                 new_content = content.replace(old_string, new_string, 1)
                 replacements = 1
+
+            # SAFE_EDIT: Syntax validation for Python files before writing
+            if path.suffix.lower() == '.py':
+                try:
+                    compile(new_content, str(path), 'exec')
+                except SyntaxError as e:
+                    return {
+                        "success": False,
+                        "error": f"Edit would create invalid Python syntax — file NOT modified: {e.msg} (line {e.lineno})",
+                        "syntax_error": True,
+                        "line": e.lineno,
+                        "offset": e.offset
+                    }
 
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(new_content)

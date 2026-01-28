@@ -17,6 +17,7 @@ from .cot_engine import CoTEngine
 from .plan_mode import PlanMode
 from .subagent import SubAgentManager, TaskTracker, TaskTool
 from .ducs_classifier import DUCSClassifier
+from .swecas_classifier import SWECASClassifier
 
 
 class ExecutionMode:
@@ -73,50 +74,52 @@ class QwenCodeAgent:
 
     VERSION = "1.0.0"
 
-    SYSTEM_PROMPT = """You are QwenCode, an expert AI coding assistant similar to Claude Code.
+    SYSTEM_PROMPT = """You are QwenCode, an AI coding assistant that works with files using tools.
 
-CRITICAL RULES - ALWAYS FOLLOW:
+WORKFLOW — ALWAYS USE TOOLS FOR FILE TASKS:
+1. Read the file FIRST: [TOOL: read(file_path="...")]
+2. Edit the file: [TOOL: edit(file_path="...", old_string="...", new_string="...")]
+3. Verify if needed: [TOOL: read(file_path="...")]
 
-1. WHEN ASKED TO WRITE CODE:
-   - ALWAYS show the code directly in your response using markdown code blocks
-   - DO NOT use bash tool to write code (no echo, no cat)
-   - Just show the code like this:
-   ```python
-   # your code here
-   ```
+WHEN TO USE TOOLS (ALWAYS):
+- "add function to file.py" → [TOOL: read(file_path="file.py")] then [TOOL: edit(...)]
+- "fix bug in file.py" → [TOOL: read(file_path="file.py")] then [TOOL: edit(...)]
+- "create new file" → [TOOL: write(file_path="...", content="...")]
+- "run tests" → [TOOL: bash(command="python -m pytest")]
+- "show file" → [TOOL: read(file_path="...")]
+- "list files" → [TOOL: ls(path=".")]
+- "find files" → [TOOL: glob(pattern="**/*.py")]
+- "search for X" → [TOOL: grep(pattern="X")]
 
-2. TOOL USAGE - ONLY when needed:
-   - Use tools ONLY for file operations (read/write/edit files)
-   - Use bash ONLY for running commands (git, npm, python script.py)
-   - NEVER use bash to display code - just write code in your response
+WHEN NOT TO USE TOOLS (text answer only):
+- "explain what this code does" → answer in text
+- "what is a decorator?" → answer in text
+- "show me an algorithm" → show in markdown code block
 
-3. RESPONSE LANGUAGE:
-   - Respond in the SAME language as the user's question
-   - If user writes in Russian, respond in Russian
-   - If user writes in English, respond in English
+RESPONSE LANGUAGE:
+- Respond in the SAME language as the user's question
 
 {tools_description}
 
-TOOL SYNTAX:
+TOOL FORMAT:
 [TOOL: tool_name(param1="value1", param2="value2")]
 
-Examples:
-- [TOOL: read(file_path="main.py")]
-- [TOOL: write(file_path="test.py", content="print('hello')")]
-- [TOOL: bash(command="python test.py")]
-- [TOOL: ls(path=".")]
+Use \\n for newlines inside tool parameters.
 
-IMPORTANT: For simple code requests like "write quicksort", just show the code:
-```python
-def quicksort(arr):
-    if len(arr) <= 1:
-        return arr
-    pivot = arr[len(arr) // 2]
-    left = [x for x in arr if x < pivot]
-    middle = [x for x in arr if x == pivot]
-    right = [x for x in arr if x > pivot]
-    return quicksort(left) + middle + quicksort(right)
-```
+FORBIDDEN ACTIONS:
+- NEVER create files that the user did not ask for — no demo files, no sample files, no tutorial files
+- NEVER use invented function names from training data — only names from the user's actual code
+- ONLY modify files explicitly mentioned by the user's request
+- When using write(), include ALL original code — do NOT omit unchanged parts
+- NEVER invent new files to demonstrate a concept when the user asked to fix an existing file
+- NEVER write partial files — always write the COMPLETE file content
+
+VIOLATION CHECK (before EVERY tool call):
+- Is this the user's TARGET file, not an invented example?
+- Am I using code from the USER'S REQUEST, not my own invented examples?
+- Does write() contain the COMPLETE file content, not a fragment?
+
+IMPORTANT: For ANY task involving files, ALWAYS use tools. Never just show code in markdown when the user wants to modify a file.
 
 Current working directory: {working_dir}
 """
@@ -130,6 +133,7 @@ Current working directory: {working_dir}
         self.plan_mode = PlanMode()
         self.task_tracker = TaskTracker()
         self.ducs = DUCSClassifier()
+        self.swecas = SWECASClassifier()
 
         # Sub-agent manager (needs LLM client)
         self.subagent_manager = SubAgentManager(self._call_llm_simple)
@@ -198,13 +202,29 @@ Current working directory: {working_dir}
             result["response"] = self._format_tool_result(route.tool, tool_result)
             return result
 
-        # STEP 1.5: DUCS domain classification (NO-LLM)
+        # STEP 1.5: NO-LLM pre-read for file modification tasks
+        # Detects "add/fix/update X in file.py" and auto-reads the file
+        # so LLM gets file context on first call (saves 1 round-trip)
+        pre_read_context = self._try_pre_read(user_input)
+        if pre_read_context:
+            result["tool_calls"].append(pre_read_context["tool_call"])
+
+        # STEP 1.6: DUCS domain classification (NO-LLM)
         ducs_result = self.ducs.classify(user_input)
         if ducs_result.get("confidence", 0) >= 0.5:
             result["ducs_code"] = ducs_result.get("ducs_code")
             result["ducs_category"] = ducs_result.get("category", "")
             result["ducs_confidence"] = ducs_result.get("confidence", 0)
         self._current_ducs = ducs_result
+
+        # STEP 1.7: SWECAS bug classification (NO-LLM)
+        pre_read_content = pre_read_context.get("content") if pre_read_context else None
+        swecas_result = self.swecas.classify(user_input, file_content=pre_read_content)
+        if swecas_result.get("confidence", 0) >= 0.6:
+            result["swecas_code"] = swecas_result.get("swecas_code")
+            result["swecas_category"] = swecas_result.get("name", "")
+            result["swecas_confidence"] = swecas_result.get("confidence", 0)
+        self._current_swecas = swecas_result
 
         # STEP 2: LLM processing
         result["route_method"] = "llm"
@@ -219,14 +239,33 @@ Current working directory: {working_dir}
         if self.plan_mode.is_active:
             system_prompt += "\n\n[PLAN MODE ACTIVE - Read-only operations only until plan is approved]"
 
-        # CoT mode for complex tasks
+        # CoT mode for complex tasks (SWECAS-enhanced when applicable)
         if self.config.deep_mode or self._is_complex_task(user_input):
             self.stats["cot_sessions"] += 1
             self.cot_engine.enable_deep_mode(True)
-            prompt = self.cot_engine.create_thinking_prompt(user_input, ducs_context=ducs_result)
+            # Use SWECAS context if confidence is high enough
+            swecas_ctx = swecas_result if swecas_result.get("confidence", 0) >= 0.6 else None
+            prompt = self.cot_engine.create_thinking_prompt(
+                user_input, ducs_context=ducs_result, swecas_context=swecas_ctx
+            )
         else:
             self.cot_engine.enable_deep_mode(False)
             prompt = user_input
+
+        # Inject pre-read file content into prompt (NO-LLM optimization)
+        # Content has line numbers stripped so LLM can use exact strings for old_string
+        if pre_read_context and pre_read_context.get("content"):
+            file_path = pre_read_context["file_path"]
+            file_content = pre_read_context["content"]
+            prompt = f"""{prompt}
+
+I already read {file_path} for you. Here is the EXACT file content (use these exact strings for old_string):
+```
+{file_content}
+```
+
+Now use [TOOL: edit(file_path="{file_path}", old_string="...", new_string="...")] to make the changes.
+IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line numbers."""
 
         # Agentic loop - iterate until done or max iterations
         iteration = 0
@@ -242,6 +281,23 @@ Current working directory: {working_dir}
             self.stats["llm_calls"] += 1
 
             if not llm_response:
+                # CHUNKED CONTEXT: If deep mode + SWECAS, retry with compressed prompt
+                if self.config.deep_mode and hasattr(self, '_current_swecas'):
+                    swecas = self._current_swecas
+                    if swecas.get("confidence", 0) >= 0.6 and iteration == 1:
+                        # Reduce context: keep only SWECAS template + file + task
+                        fix_hint = swecas.get("fix_hint", "")
+                        compressed = f"""Fix this bug. Category: SWECAS-{swecas.get('swecas_code', 0)} ({swecas.get('name', '')}).
+Hint: {fix_hint}
+Task: {user_input}"""
+                        if pre_read_context and pre_read_context.get("content"):
+                            file_path = pre_read_context["file_path"]
+                            # Truncate file content to fit context window
+                            file_content = pre_read_context["content"][:3000]
+                            compressed += f"\n\nFile {file_path}:\n```\n{file_content}\n```\nUse [TOOL: edit(...)] to fix."
+                        current_prompt = compressed
+                        continue  # Retry with compressed prompt
+
                 result["response"] = "Error: No response from LLM"
                 break
 
@@ -293,10 +349,145 @@ Current working directory: {working_dir}
 
         return result
 
+    def process_stream(self, user_input: str):
+        """
+        Generator version of process() — yields SSE events during processing.
+        Events: status, tool_start, tool_result, thinking, response, done
+        """
+        self.stats["total_requests"] += 1
+
+        # Check for special commands
+        special = self._handle_special_commands(user_input)
+        if special:
+            yield {"event": "response", "text": special["response"], "route_method": "special_command"}
+            yield {"event": "done"}
+            return
+
+        # STEP 1: Try pattern routing (NO-LLM)
+        route = self.router.route(user_input)
+
+        if route.confidence >= 0.85 and route.tool:
+            self.stats["pattern_matches"] += 1
+            yield {"event": "tool_start", "tool": route.tool, "params": route.params}
+            tool_result = execute_tool(route.tool, **route.params)
+            self.stats["tool_calls"] += 1
+            yield {"event": "tool_result", "tool": route.tool, "params": route.params, "result": tool_result}
+            yield {"event": "response", "text": self._format_tool_result(route.tool, tool_result), "route_method": "pattern"}
+            yield {"event": "done"}
+            return
+
+        # STEP 1.5: NO-LLM pre-read for file modification tasks
+        pre_read_context = self._try_pre_read(user_input)
+        if pre_read_context:
+            yield {"event": "tool_start", "tool": "read", "params": pre_read_context["tool_call"]["params"]}
+            yield {"event": "tool_result", "tool": "read", "params": pre_read_context["tool_call"]["params"], "result": pre_read_context["tool_call"]["result"]}
+
+        # STEP 1.6: DUCS domain classification (NO-LLM)
+        ducs_result = self.ducs.classify(user_input)
+        if ducs_result.get("confidence", 0) >= 0.5:
+            yield {"event": "status", "text": f"Domain: {ducs_result.get('category', '')}"}
+        self._current_ducs = ducs_result
+
+        # STEP 1.7: SWECAS bug classification (NO-LLM)
+        pre_read_content_stream = pre_read_context.get("content") if pre_read_context else None
+        swecas_result = self.swecas.classify(user_input, file_content=pre_read_content_stream)
+        if swecas_result.get("confidence", 0) >= 0.6:
+            yield {"event": "status", "text": f"Bug: SWECAS-{swecas_result.get('swecas_code', '?')} ({swecas_result.get('name', '')})"}
+        self._current_swecas = swecas_result
+
+        # STEP 2: LLM processing
+        yield {"event": "status", "text": "Thinking..."}
+
+        system_prompt = self.SYSTEM_PROMPT.format(
+            tools_description=get_tools_description(),
+            working_dir=self.working_dir
+        )
+
+        if self.plan_mode.is_active:
+            system_prompt += "\n\n[PLAN MODE ACTIVE - Read-only operations only until plan is approved]"
+
+        # CoT mode (SWECAS-enhanced when applicable)
+        if self.config.deep_mode or self._is_complex_task(user_input):
+            self.stats["cot_sessions"] += 1
+            self.cot_engine.enable_deep_mode(True)
+            swecas_ctx = swecas_result if swecas_result.get("confidence", 0) >= 0.6 else None
+            prompt = self.cot_engine.create_thinking_prompt(
+                user_input, ducs_context=ducs_result, swecas_context=swecas_ctx
+            )
+        else:
+            self.cot_engine.enable_deep_mode(False)
+            prompt = user_input
+
+        # Inject pre-read file content (line numbers stripped for exact matching)
+        if pre_read_context and pre_read_context.get("content"):
+            file_path = pre_read_context["file_path"]
+            file_content = pre_read_context["content"]
+            prompt = f"""{prompt}
+
+I already read {file_path} for you. Here is the EXACT file content (use these exact strings for old_string):
+```
+{file_content}
+```
+
+Now use [TOOL: edit(file_path="{file_path}", old_string="...", new_string="...")] to make the changes.
+IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line numbers."""
+
+        # Agentic loop
+        iteration = 0
+        current_prompt = prompt
+        all_tool_calls = []
+
+        while iteration < self.config.max_iterations:
+            iteration += 1
+            yield {"event": "status", "text": f"Step {iteration}..."}
+
+            llm_response = self._call_llm(current_prompt, system_prompt)
+            self.stats["llm_calls"] += 1
+
+            if not llm_response:
+                yield {"event": "response", "text": "Error: No response from LLM", "route_method": "llm"}
+                break
+
+            tool_calls = self._parse_tool_calls(llm_response)
+
+            if not tool_calls:
+                # No more tool calls — final response
+                if self.config.deep_mode:
+                    cot_steps = self.cot_engine.parse_cot_response(llm_response)
+                    thinking = [step.thought for step in cot_steps if step.thought]
+                    if thinking:
+                        yield {"event": "thinking", "steps": thinking}
+
+                yield {"event": "response", "text": llm_response, "route_method": "llm"}
+                break
+
+            # Execute tool calls
+            tool_results = []
+            for tool_name, params in tool_calls:
+                self.stats["tool_calls"] += 1
+                yield {"event": "tool_start", "tool": tool_name, "params": params}
+
+                if self.plan_mode.is_active and tool_name in ["write", "edit", "bash"]:
+                    tool_result = {"success": False, "error": "Cannot modify files in plan mode"}
+                else:
+                    tool_result = execute_tool(tool_name, **params)
+
+                all_tool_calls.append({"tool": tool_name, "params": params, "result": tool_result})
+                yield {"event": "tool_result", "tool": tool_name, "params": params, "result": tool_result}
+                tool_results.append((tool_name, tool_result))
+
+            current_prompt = self._build_continuation_prompt(tool_results)
+
+        # Store in history
+        self.conversation_history.append({"role": "user", "content": user_input})
+        self.conversation_history.append({"role": "assistant", "content": "(streamed response)"})
+
+        yield {"event": "done"}
+
     def _get_num_predict(self, ducs_result: dict = None) -> int:
         """Adjust max tokens based on DUCS classification and mode"""
         if self.config.deep_mode:
-            return 1024  # Deep needs more but not 2048
+            return 4096  # Deep needs CoT reasoning + tool calls
         if ducs_result and ducs_result.get("confidence", 0) >= 0.85:
             return 512   # Known domain, shorter answers
         return 2048      # Unknown, full output
@@ -682,6 +873,69 @@ Use /mode fast|deep|search to switch"""}
 
         return None
 
+    # Pattern to detect "add/fix/update X in/to file.ext"
+    _PRE_READ_PATTERN = re.compile(
+        r'(?:add|insert|append|fix|update|modify|refactor|implement|remove|delete|change)\s+'
+        r'.+?\s+(?:in|to|from|of)\s+["\']?([^\s"\']+\.\w{1,10})["\']?',
+        re.IGNORECASE
+    )
+
+    @staticmethod
+    def _strip_line_numbers(content: str) -> str:
+        """
+        Strip line number prefixes from read tool output.
+        The read tool returns lines like "     1: code here" — we strip
+        the "     N: " prefix so the LLM sees raw file content and can
+        use exact strings in old_string for edits.
+        """
+        lines = content.split('\n')
+        stripped = []
+        for line in lines:
+            # Match format: optional spaces + digits + colon + space
+            m = re.match(r'^\s*\d+:\s?', line)
+            if m:
+                stripped.append(line[m.end():])
+            else:
+                stripped.append(line)
+        return '\n'.join(stripped)
+
+    def _try_pre_read(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """
+        NO-LLM pre-read: detect file modification requests and auto-read the file.
+        This gives the LLM file context on the first call, saving one round-trip.
+        Returns dict with file content (line numbers stripped) and tool_call info, or None.
+        """
+        match = self._PRE_READ_PATTERN.search(user_input)
+        if not match:
+            return None
+
+        file_path = match.group(1)
+
+        # Validate it looks like a real file path (has extension)
+        if '.' not in file_path or file_path.startswith('http'):
+            return None
+
+        # Execute read (NO-LLM)
+        try:
+            read_result = execute_tool('read', file_path=file_path)
+            if read_result.get("success"):
+                self.stats["tool_calls"] += 1
+                # Strip line numbers so LLM sees raw content for exact old_string matching
+                raw_content = self._strip_line_numbers(read_result.get("content", ""))
+                return {
+                    "file_path": file_path,
+                    "content": raw_content,
+                    "tool_call": {
+                        "tool": "read",
+                        "params": {"file_path": file_path},
+                        "result": read_result
+                    }
+                }
+        except Exception:
+            pass
+
+        return None
+
     def _is_complex_task(self, user_input: str) -> bool:
         """Detect if task needs CoT reasoning"""
         complex_indicators = [
@@ -800,10 +1054,54 @@ Use /mode fast|deep|search to switch"""}
             result = re.sub(pattern, '', result, flags=re.IGNORECASE)
         return result.strip()
 
+    def _load_swecas_search_cache(self) -> Dict[str, Any]:
+        """Load SWECAS search cache from JSON file"""
+        if hasattr(self, '_swecas_cache') and self._swecas_cache:
+            return self._swecas_cache
+        try:
+            cache_path = os.path.join(os.path.dirname(__file__), 'swecas_search_cache.json')
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                self._swecas_cache = json.load(f)
+            return self._swecas_cache
+        except Exception:
+            self._swecas_cache = {}
+            return self._swecas_cache
+
+    def _get_swecas_cache_fallback(self, swecas_code: int) -> Dict[str, Any]:
+        """Get cached search results for a SWECAS category"""
+        cache = self._load_swecas_search_cache()
+        cat_key = str(swecas_code)
+        if cat_key in cache:
+            cat_data = cache[cat_key]
+            results = []
+            for i, hint in enumerate(cat_data.get("fix_hints", [])):
+                results.append({
+                    "type": "swecas_cache",
+                    "title": f"SWECAS-{swecas_code} fix pattern #{i+1}",
+                    "text": hint,
+                    "url": ""
+                })
+            for pattern in cat_data.get("patterns", []):
+                results.append({
+                    "type": "swecas_cache",
+                    "title": f"Code pattern",
+                    "text": pattern,
+                    "url": ""
+                })
+            return {
+                "success": True,
+                "query": cat_data.get("query", ""),
+                "results": results,
+                "count": len(results),
+                "source": "swecas_cache"
+            }
+        return {"success": False, "error": "No cache for this category"}
+
     def web_search(self, query: str) -> Dict[str, Any]:
         """
         Поиск в интернете для DEEP SEARCH режима
         Использует DuckDuckGo HTML parsing (полноценный веб-поиск)
+        Falls back to SWECAS cache when search times out.
         """
         self.stats["web_searches"] += 1
 
@@ -829,16 +1127,24 @@ Use /mode fast|deep|search to switch"""}
                     "count": len(results)
                 }
             else:
-                return {
-                    "success": False,
-                    "error": result.get("error", "Search failed")
-                }
+                # Fallback to SWECAS cache if search failed and we have a classification
+                return self._try_swecas_cache_fallback(result)
 
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            # Timeout or network error — try SWECAS cache
+            return self._try_swecas_cache_fallback({"error": str(e)})
+
+    def _try_swecas_cache_fallback(self, failed_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Attempt SWECAS cache fallback when web search fails"""
+        swecas = getattr(self, '_current_swecas', None)
+        if swecas and swecas.get("confidence", 0) >= 0.5:
+            cache_result = self._get_swecas_cache_fallback(swecas["swecas_code"])
+            if cache_result.get("success"):
+                return cache_result
+        return {
+            "success": False,
+            "error": failed_result.get("error", "Search failed, no cache available")
+        }
 
     def process_with_mode(self, user_input: str) -> Dict[str, Any]:
         """

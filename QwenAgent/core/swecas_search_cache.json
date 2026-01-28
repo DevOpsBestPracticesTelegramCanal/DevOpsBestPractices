@@ -1,0 +1,142 @@
+{
+  "_meta": {
+    "description": "Pre-loaded search patterns per SWECAS category. Used as fallback when DuckDuckGo times out.",
+    "version": "1.0",
+    "date": "2026-01-28"
+  },
+  "100": {
+    "query": "Python None check AttributeError fix",
+    "patterns": [
+      "if x is not None:",
+      "getattr(obj, 'attr', default_value)",
+      "obj and obj.attr",
+      "from typing import Optional"
+    ],
+    "fix_hints": [
+      "Add None check before attribute access",
+      "Use getattr with default value",
+      "Use Optional type annotation to document nullability",
+      "Guard with 'if variable is not None' before use"
+    ]
+  },
+  "200": {
+    "query": "Python ImportError ModuleNotFoundError fix",
+    "patterns": [
+      "try: import module except ImportError: fallback",
+      "from importlib import import_module",
+      "sys.path.insert(0, path)",
+      "pip install missing-package"
+    ],
+    "fix_hints": [
+      "Add try/except ImportError with fallback",
+      "Check if package is in requirements.txt",
+      "Fix circular imports by moving import inside function",
+      "Use lazy imports for optional dependencies"
+    ]
+  },
+  "300": {
+    "query": "Python TypeError expected type mismatch fix",
+    "patterns": [
+      "isinstance(obj, expected_type)",
+      "int(value) / str(value) / float(value)",
+      "typing.Union[str, bytes]",
+      "if isinstance(x, str): x = x.encode()"
+    ],
+    "fix_hints": [
+      "Add type check before operation",
+      "Add explicit type conversion",
+      "Use Union type for parameters accepting multiple types",
+      "Handle string/bytes conversion explicitly"
+    ]
+  },
+  "400": {
+    "query": "Python deprecated API migration update fix",
+    "patterns": [
+      "import warnings; warnings.warn('deprecated', DeprecationWarning)",
+      "# Updated: old_func() -> new_func()",
+      "if sys.version_info >= (3, 10):",
+      "from packaging.version import Version"
+    ],
+    "fix_hints": [
+      "Replace deprecated function with recommended alternative",
+      "Add version guard for backward compatibility",
+      "Check changelog for migration guide",
+      "Use feature detection instead of version checking when possible"
+    ]
+  },
+  "500": {
+    "query": "Python input validation ValueError assert replace",
+    "patterns": [
+      "if not valid: raise ValueError('message')",
+      "if '.' in name: raise ValueError('dots not allowed')",
+      "validate in __init__ before assignment",
+      "raise ValueError instead of assert"
+    ],
+    "fix_hints": [
+      "Replace assert with explicit raise ValueError (assert disabled with -O)",
+      "Add validation in constructor before state assignment",
+      "Place validation check BEFORE the variable is used",
+      "Use descriptive error messages in ValueError"
+    ]
+  },
+  "600": {
+    "query": "Python logic error control flow condition fix",
+    "patterns": [
+      "if condition:  # was: if not condition:",
+      "for i in range(len(items) - 1):  # off-by-one fix",
+      "return early pattern to simplify flow",
+      "guard clause before main logic"
+    ],
+    "fix_hints": [
+      "Check condition logic — is it inverted?",
+      "Check loop boundaries for off-by-one errors",
+      "Simplify nested conditions with early returns",
+      "Trace execution path with concrete test values"
+    ]
+  },
+  "700": {
+    "query": "Python configuration environment variable path fix",
+    "patterns": [
+      "os.environ.get('VAR', 'default')",
+      "pathlib.Path instead of string concatenation",
+      "config file: .env, config.yaml, settings.py",
+      "os.path.join for cross-platform paths"
+    ],
+    "fix_hints": [
+      "Use os.environ.get() with sensible default",
+      "Use pathlib.Path for cross-platform path handling",
+      "Don't hardcode paths — use config or environment variables",
+      "Check if config differs between dev and CI environments"
+    ]
+  },
+  "800": {
+    "query": "Python performance optimization memory leak fix",
+    "patterns": [
+      "list comprehension instead of loop",
+      "collections.defaultdict / Counter",
+      "functools.lru_cache for memoization",
+      "generators instead of lists for large data"
+    ],
+    "fix_hints": [
+      "Profile before optimizing — use cProfile",
+      "Replace nested loops with dict lookups",
+      "Use generators/iterators for large datasets",
+      "Add caching for repeated computations"
+    ]
+  },
+  "900": {
+    "query": "Python async await race condition deadlock fix",
+    "patterns": [
+      "await coroutine  # was missing await",
+      "async with lock:",
+      "asyncio.gather(*tasks)",
+      "threading.Lock() for shared mutable state"
+    ],
+    "fix_hints": [
+      "Add missing await keyword before coroutine call",
+      "Protect shared mutable state with locks",
+      "Use asyncio.gather for concurrent tasks",
+      "Check if cleanup runs before async task completes"
+    ]
+  }
+}

@@ -37,10 +37,16 @@ class CoTEngine:
         """Enable/disable deep thinking mode"""
         self.deep_mode = enabled
 
-    def create_thinking_prompt(self, task: str, context: Dict[str, Any] = None, ducs_context: Dict[str, Any] = None) -> str:
-        """Create structured thinking prompt, optionally enriched with DUCS domain context"""
+    def create_thinking_prompt(self, task: str, context: Dict[str, Any] = None,
+                               ducs_context: Dict[str, Any] = None,
+                               swecas_context: Dict[str, Any] = None) -> str:
+        """Create structured thinking prompt, optionally enriched with DUCS/SWECAS context"""
         if not self.deep_mode:
             return task
+
+        # SWECAS-enhanced pipeline takes priority for bug-fixing tasks
+        if swecas_context and swecas_context.get("confidence", 0) >= 0.6:
+            return self._create_swecas_thinking_prompt(task, swecas_context, context)
 
         # Build DUCS domain section if classified with high confidence
         ducs_section = ""
@@ -78,6 +84,63 @@ Now proceed with the task."""
 
         if context:
             prompt += f"\n\nContext:\n{context}"
+
+        return prompt
+
+    def _create_swecas_thinking_prompt(self, task: str, swecas: Dict[str, Any],
+                                        context: Dict[str, Any] = None) -> str:
+        """
+        SWECAS-enhanced thinking prompt with diffuse thinking.
+        Pipeline: CLASSIFY -> DIFFUSE -> FOCUS -> FIX
+        """
+        code = swecas.get("swecas_code", 0)
+        name = swecas.get("name", "Unknown")
+        subcat = swecas.get("subcategory", "N/A")
+        confidence = swecas.get("confidence", 0)
+        pattern_desc = swecas.get("pattern_description", "")
+        fix_hint = swecas.get("fix_hint", "")
+        diffuse_insights = swecas.get("diffuse_insights", "")
+        related = swecas.get("related", [])
+        diffuse_prompts = swecas.get("diffuse_prompts", [])
+
+        # Format diffuse prompts as numbered list
+        prompts_text = ""
+        if diffuse_prompts:
+            prompts_text = "\n".join(f"  - {p}" for p in diffuse_prompts[:3])
+
+        prompt = f"""Task: {task}
+
+## Bug Classification (SWECAS {code}: {name})
+- Subcategory: {subcat}
+- Confidence: {confidence}
+- {pattern_desc}
+
+## Fix Pattern
+{fix_hint if fix_hint else 'No specific template — analyze the code carefully.'}
+
+## Cross-Category Insights (Diffuse Thinking)
+{diffuse_insights if diffuse_insights else 'No cross-links available.'}
+
+## Diffuse Questions (ask yourself these before coding)
+{prompts_text if prompts_text else '(none)'}
+
+## Rules
+- Use the fix pattern for SWECAS-{code} category
+- Place validation BEFORE state assignment
+- Do NOT use assert for production validation (can be disabled with -O flag)
+- Do NOT create example files — only modify the target file
+- When using write(), include the COMPLETE file content
+
+## Steps:
+1. CLASSIFY: Bug is SWECAS-{code} ({name})
+2. DIFFUSE: Check related categories: {related}
+3. FOCUS: Deep analysis of the target file with enriched context
+4. FIX: Apply the fix using edit/write tool with COMPLETE file content
+
+Now proceed with the task."""
+
+        if context:
+            prompt += f"\n\nAdditional context:\n{context}"
 
         return prompt
 
