@@ -1,0 +1,102 @@
+[
+  {
+    "task": "cpython__cpython-9267",
+    "mode": "fast",
+    "passed": 2,
+    "total": 3,
+    "duration_s": 0.25,
+    "swecas_code": 100,
+    "error": null,
+    "score": 0.67
+  },
+  {
+    "task": "django__django-11099",
+    "mode": "fast",
+    "passed": 3,
+    "total": 3,
+    "duration_s": 0.23,
+    "swecas_code": 100,
+    "error": null,
+    "score": 1.0
+  },
+  {
+    "task": "django__django-12286",
+    "mode": "fast",
+    "passed": 2,
+    "total": 3,
+    "duration_s": 0.2,
+    "swecas_code": 500,
+    "error": null,
+    "score": 0.67
+  },
+  {
+    "task": "matplotlib__matplotlib-13989",
+    "mode": "fast",
+    "passed": 1,
+    "total": 1,
+    "duration_s": 0.25,
+    "swecas_code": 100,
+    "error": null,
+    "score": 1.0
+  },
+  {
+    "task": "pallets__flask-4045",
+    "mode": "fast",
+    "passed": 4,
+    "total": 4,
+    "duration_s": 0.44,
+    "swecas_code": 100,
+    "error": null,
+    "score": 1.0
+  },
+  {
+    "task": "psf__requests-2317",
+    "mode": "fast",
+    "passed": 2,
+    "total": 2,
+    "duration_s": 0.12,
+    "swecas_code": 200,
+    "error": null,
+    "score": 1.0
+  },
+  {
+    "task": "pytest-dev__pytest-5103",
+    "mode": "fast",
+    "passed": 0,
+    "total": 1,
+    "duration_s": 0.22,
+    "swecas_code": 700,
+    "error": null,
+    "score": 0.0
+  },
+  {
+    "task": "scikit-learn__sklearn-10297",
+    "mode": "fast",
+    "passed": 0,
+    "total": 1,
+    "duration_s": 0.24,
+    "swecas_code": 100,
+    "error": null,
+    "score": 0.0
+  },
+  {
+    "task": "sympy__sympy-13146",
+    "mode": "fast",
+    "passed": 0,
+    "total": 1,
+    "duration_s": 0.26,
+    "swecas_code": 600,
+    "error": null,
+    "score": 0.0
+  },
+  {
+    "task": "sympy__sympy-13480",
+    "mode": "fast",
+    "passed": 3,
+    "total": 4,
+    "duration_s": 0.2,
+    "swecas_code": 300,
+    "error": null,
+    "score": 0.75
+  }
+]

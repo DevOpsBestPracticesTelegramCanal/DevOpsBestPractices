@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  qwencode:
+    build: .
+    ports:
+      - "5002:5002"
+    environment:
+      - SEARCH_BACKEND=auto
+      - SEARXNG_URL=http://searxng:8080
+      - OLLAMA_URL=http://ollama:11434
+    depends_on:
+      searxng:
+        condition: service_started
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

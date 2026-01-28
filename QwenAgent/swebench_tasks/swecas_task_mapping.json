@@ -1,4 +1,36 @@
 {
+  "cpython__cpython-9267": {
+    "swecas_code": 100,
+    "swecas_name": "Null/None & Value Errors",
+    "confidence": 0.9,
+    "subcategory": 100,
+    "fix_hint": "",
+    "description_used": "Test for cpython/cpython#9267: OrderedDict.move_to_end() missing KeyError.\n\nBug: move_to_end() silently does nothing for missing keys instead of raising KeyError.\nFix: Add `if key not in self._data: r"
+  },
+  "django__django-11099": {
+    "swecas_code": 100,
+    "swecas_name": "Null/None & Value Errors",
+    "confidence": 1.0,
+    "subcategory": 100,
+    "fix_hint": "",
+    "description_used": "Test for django/django#11099: QuerySet.exclude() with None value.\n\nBug: exclude(field=None) uses == instead of `is` for None comparison,\nwhich can produce incorrect results with objects that override "
+  },
+  "django__django-12286": {
+    "swecas_code": 500,
+    "swecas_name": "Security & Validation",
+    "confidence": 1.0,
+    "subcategory": 500,
+    "fix_hint": "",
+    "description_used": "Test for django/django#12286: Model validation for empty unique fields.\n\nBug: full_clean() allows empty string for unique CharField with blank=False.\nFix: Add check for empty string on unique fields w"
+  },
+  "matplotlib__matplotlib-13989": {
+    "swecas_code": 100,
+    "swecas_name": "Null/None & Value Errors",
+    "confidence": 1.0,
+    "subcategory": 100,
+    "fix_hint": "",
+    "description_used": "Test for matplotlib/matplotlib#13989: Axis limits not auto-swapped.\n\nBug: set_xlim(10, 0) stores (10, 0) instead of (0, 10) with inverted flag.\nFix: Auto-swap left/right when left > right, set inverte"
+  },
   "pallets__flask-4045": {
     "swecas_code": 100,
     "swecas_name": "Null/None & Value Errors",
@@ -14,5 +46,37 @@
     "subcategory": 200,
     "fix_hint": "",
     "description_used": "Test for psf/requests#2317: builtin_str(method) bug.\n\nBug: In requests_local/sessions.py, `method = builtin_str(method)` converts\nbinary string b'GET' to literal \"b'GET'\" in Python 3, causing 404 erro"
+  },
+  "pytest-dev__pytest-5103": {
+    "swecas_code": 700,
+    "swecas_name": "Config & Environment",
+    "confidence": 1.0,
+    "subcategory": 700,
+    "fix_hint": "",
+    "description_used": "Test for pytest-dev/pytest#5103: Fixture teardown order.\n\nBug: Fixtures tear down in registration order (FIFO) instead of\nreverse scope order. Function-scope should tear down first, session last.\nFix:"
+  },
+  "scikit-learn__sklearn-10297": {
+    "swecas_code": 100,
+    "swecas_name": "Null/None & Value Errors",
+    "confidence": 0.7,
+    "subcategory": 110,
+    "fix_hint": "Add explicit None check before attribute access",
+    "description_used": "Test for scikit-learn/sklearn#10297: fit_transform returns wrong type.\n\nBug: TransformerMixin.fit_transform() returns self instead of transformed data.\nFix: Return self.fit(X, y).transform(X) from fit"
+  },
+  "sympy__sympy-13146": {
+    "swecas_code": 600,
+    "swecas_name": "Logic & Control Flow",
+    "confidence": 0.45,
+    "subcategory": 611,
+    "fix_hint": "Check compound condition for logic error",
+    "description_used": "Test for sympy/sympy#13146: Double negation simplification.\n\nBug: simplify(--x) returns --x instead of x.\nFix: Add double negation rule: Neg(Neg(x)) -> x.\nSWECAS-600: Logic & Control Flow"
+  },
+  "sympy__sympy-13480": {
+    "swecas_code": 300,
+    "swecas_name": "Type & Interface",
+    "confidence": 1.0,
+    "subcategory": 300,
+    "fix_hint": "",
+    "description_used": "Test for sympy/sympy#13480: Implicit multiplication parsing.\n\nBug: parse_expr('2x') raises TypeError instead of returning Mul(2, x).\nFix: Tokenizer should split '2x' into ['2', '*', 'x'].\nSWECAS-300: "
   }
 }
