@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QwenCode</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0d1117">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <link rel="icon" type="image/png" href="/static/icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -785,6 +791,26 @@
         .loading-text.status-executing { color: var(--accent-orange); }
         .loading-text.status-executing::before { content: "⚡"; }
 
+        .loading-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-orange);
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 0.4; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+        }
+
+        .loading-step-counter {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-left: 4px;
+        }
+
         /* ========== INPUT AREA ========== */
         .input-area {
             background: var(--bg-secondary);
@@ -937,6 +963,82 @@
             background: var(--bg-hover);
         }
 
+        /* ========== FULLSCREEN / PWA BUTTONS ========== */
+        .header-btn {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 4px 10px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .header-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--accent-purple);
+        }
+
+        #install-btn {
+            display: none;
+            color: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+
+        #install-btn:hover {
+            background: rgba(63, 185, 80, 0.15);
+        }
+
+        /* ========== COMPACT MODE ========== */
+        body.compact-mode .header {
+            padding: 4px 12px;
+        }
+
+        body.compact-mode .logo-icon {
+            width: 28px;
+            height: 28px;
+            font-size: 16px;
+            border-radius: 7px;
+        }
+
+        body.compact-mode .logo-version {
+            display: none;
+        }
+
+        body.compact-mode .output {
+            padding: 10px 14px;
+        }
+
+        body.compact-mode .input-area {
+            padding: 8px 12px;
+        }
+
+        body.compact-mode .input-wrapper {
+            padding: 8px 12px;
+        }
+
+        body.compact-mode .message {
+            margin-bottom: 12px;
+        }
+
+        /* Auto-compact in standalone PWA mode */
+        @media (display-mode: standalone) {
+            body { /* auto-apply compact via JS */ }
+        }
+
+        /* Fullscreen overrides */
+        :fullscreen body,
+        :-webkit-full-screen body {
+            /* compact is applied via JS, this ensures background fills */
+            background: var(--bg-primary);
+        }
+
         /* ========== RESPONSIVE ========== */
         @media (max-width: 768px) {
             .header { padding: 10px 12px; }
@@ -979,6 +1081,8 @@
                 <button class="mode-btn search" id="mode-search" title="Quick web search (🌐)">🌐 Search</button>
                 <button class="mode-btn aisearch" id="mode-aisearch" title="Search + AI analysis (🔍)">🔍 AI+Search</button>
             </div>
+            <button class="header-btn" id="install-btn" title="Install as desktop app">Install</button>
+            <button class="header-btn" id="fullscreen-btn" title="Toggle fullscreen (F11)">&#x26F6;</button>
         </div>
     </div>
 
@@ -1045,6 +1149,22 @@
             'notebook_edit': '📓', 'default': '⚡'
         };
 
+        // ========== TOOL LABELS (for live activity) ==========
+        const TOOL_LABELS = {
+            'read': 'Reading file',
+            'write': 'Writing file',
+            'edit': 'Editing file',
+            'bash': 'Running command',
+            'ls': 'Listing directory',
+            'grep': 'Searching',
+            'glob': 'Finding files',
+            'git': 'Git operation',
+            'tree': 'Showing tree',
+            'web_fetch': 'Fetching URL',
+            'web_search': 'Searching web',
+            'diff': 'Comparing files'
+        };
+
         // ========== INPUT HANDLING ==========
         input.addEventListener('input', function() {
             this.style.height = 'auto';
@@ -1104,7 +1224,16 @@
             }).catch(() => {});
         }
 
-        // ========== SEND MESSAGE ==========
+        // ========== UPDATE LOADING ==========
+        function updateLoading(id, text) {
+            const el = document.getElementById(id);
+            if (el) {
+                const textEl = el.querySelector('.loading-text');
+                if (textEl) textEl.textContent = text;
+            }
+        }
+
+        // ========== SEND MESSAGE (SSE STREAMING) ==========
         async function sendMessage() {
             const message = input.value.trim();
             if (!message || isProcessing) return;
@@ -1123,58 +1252,119 @@
             if (currentMode === 'deep' && !message.toUpperCase().startsWith('[DEEP]')) {
                 finalMessage = `[DEEP] ${message}`;
             } else if (currentMode === 'search' && !message.startsWith('/search ')) {
-                // Use /search for fast direct web search (no LLM processing)
                 finalMessage = `/search ${message}`;
             } else if (currentMode === 'aisearch' && !message.toUpperCase().startsWith('[SEARCH]')) {
-                // Use [SEARCH] for web search + LLM analysis
                 finalMessage = `[SEARCH] ${message}`;
             }
 
             addMessage('user', message);
             const loadingId = showLoading('Processing...');
 
+            let stepCount = 0;
+            let totalSteps = 0;
+            let hasToolCalls = false;
+            let lastRouteMethod = '';
+
             try {
-                const response = await fetch('/api/chat', {
+                const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: finalMessage }),
                     signal: abortController.signal
                 });
 
-                const data = await response.json();
-                hideLoading(loadingId);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
 
-                if (data.success) {
-                    // Show thinking
-                    if (data.thinking && data.thinking.length > 0) {
-                        addThinking(data.thinking);
-                    }
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
 
-                    // Show tool calls
-                    const hasToolCalls = data.tool_calls && data.tool_calls.length > 0;
-                    if (hasToolCalls) {
-                        for (const tc of data.tool_calls) {
-                            addToolCall(tc);
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Process complete SSE lines
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+
+                        let event;
+                        try {
+                            event = JSON.parse(line.slice(6));
+                        } catch (e) {
+                            continue;
+                        }
+
+                        switch (event.event) {
+                            case 'status':
+                                updateLoading(loadingId, event.text);
+                                break;
+
+                            case 'tool_start':
+                                stepCount++;
+                                totalSteps++;
+                                const label = TOOL_LABELS[event.tool] || event.tool;
+                                const fileHint = event.params?.file_path
+                                    ? ` ${event.params.file_path}` : '';
+                                updateLoading(loadingId,
+                                    `[${stepCount}] ${label}${fileHint}...`);
+                                break;
+
+                            case 'tool_result':
+                                hasToolCalls = true;
+                                addToolCall({
+                                    tool: event.tool,
+                                    params: event.params,
+                                    result: event.result
+                                });
+                                break;
+
+                            case 'thinking':
+                                if (event.steps && event.steps.length > 0) {
+                                    addThinking(event.steps);
+                                }
+                                break;
+
+                            case 'response':
+                                lastRouteMethod = event.route_method || '';
+                                hideLoading(loadingId);
+                                if (event.text) {
+                                    // Show response for: no tools, llm, deep_search, pattern+llm_analysis
+                                    const showResponse = !hasToolCalls ||
+                                        lastRouteMethod === 'llm' ||
+                                        lastRouteMethod === 'deep_search' ||
+                                        lastRouteMethod === 'pattern+llm_analysis';
+                                    if (showResponse) {
+                                        addMessage('assistant', event.text, lastRouteMethod);
+                                    }
+                                }
+                                break;
+
+                            case 'error':
+                                hideLoading(loadingId);
+                                addMessage('system', `Error: ${event.text || 'Unknown error'}`);
+                                break;
+
+                            case 'done':
+                                hideLoading(loadingId);
+                                break;
                         }
                     }
-
-                    // Show response (skip raw text when tool calls already rendered it)
-                    if (!hasToolCalls && data.response) {
-                        addMessage('assistant', data.response, data.route_method);
-                    } else if (hasToolCalls && data.route_method === 'llm' && data.response) {
-                        // LLM may provide explanation alongside tool calls
-                        addMessage('assistant', data.response, data.route_method);
-                    }
-                } else {
-                    addMessage('system', `Error: ${data.error || 'Unknown error'}`);
                 }
+
+                // Ensure loading is hidden
+                hideLoading(loadingId);
 
             } catch (error) {
                 hideLoading(loadingId);
                 if (error.name === 'AbortError') {
-                    addMessage('system', '⏹ Request stopped by user');
+                    addMessage('system', 'Request stopped by user');
                 } else {
-                    addMessage('system', `Error: ${error.message}`);
+                    // Fallback to non-streaming API
+                    console.warn('SSE failed, falling back to /api/chat:', error.message);
+                    await sendMessageFallback(finalMessage, message, loadingId);
                 }
             }
 
@@ -1183,6 +1373,44 @@
             stopBtn.classList.remove('visible');
             abortController = null;
             input.focus();
+        }
+
+        // ========== FALLBACK (non-streaming) ==========
+        async function sendMessageFallback(finalMessage, originalMessage, loadingId) {
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: finalMessage })
+                });
+
+                const data = await response.json();
+                hideLoading(loadingId);
+
+                if (data.success) {
+                    if (data.thinking && data.thinking.length > 0) {
+                        addThinking(data.thinking);
+                    }
+
+                    const hasToolCalls = data.tool_calls && data.tool_calls.length > 0;
+                    if (hasToolCalls) {
+                        for (const tc of data.tool_calls) {
+                            addToolCall(tc);
+                        }
+                    }
+
+                    if (!hasToolCalls && data.response) {
+                        addMessage('assistant', data.response, data.route_method);
+                    } else if (hasToolCalls && data.route_method === 'llm' && data.response) {
+                        addMessage('assistant', data.response, data.route_method);
+                    }
+                } else {
+                    addMessage('system', `Error: ${data.error || 'Unknown error'}`);
+                }
+            } catch (e) {
+                hideLoading(loadingId);
+                addMessage('system', `Error: ${e.message}`);
+            }
         }
 
         // ========== STOP REQUEST ==========
@@ -1294,6 +1522,7 @@
             div.className = 'loading';
             div.innerHTML = `
                 <div class="loading-spinner"></div>
+                <span class="loading-dot"></span>
                 <span class="loading-text status-executing">${escapeHtml(text)}</span>
             `;
             output.appendChild(div);
@@ -1392,7 +1621,7 @@
                 return html || '<span style="color:var(--text-muted)">(no output)</span>';
             }
 
-            if (tool === 'edit' || tool === 'write') {
+            if (tool === 'edit' || tool === 'write' || tool === 'code_inject') {
                 const file = result.file_path || result.file || 'file';
                 const oldContent = result.old_content || '';
                 const newContent = result.new_content || '';
@@ -1405,7 +1634,8 @@
                         tool, startLine
                     );
                 }
-                return `<span style="color:var(--accent-green)">✓ File ${tool === 'write' ? 'written' : 'edited'}: ${escapeHtml(file)}</span>`;
+                const action = tool === 'write' ? 'written' : 'edited';
+                return `<span style="color:var(--accent-green)">✓ File ${action}: ${escapeHtml(file)}</span>`;
             }
 
             return `<pre style="margin:0">${escapeHtml(JSON.stringify(result, null, 2))}</pre>`;
@@ -1838,6 +2068,70 @@
             } catch (e) {
                 addMessage('system', `Failed to switch model: ${e.message}`);
             }
+        }
+
+        // ========== FULLSCREEN API ==========
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+
+        document.addEventListener('fullscreenchange', () => {
+            const isFS = !!document.fullscreenElement;
+            fullscreenBtn.textContent = isFS ? '\u2716' : '\u26F6';
+            fullscreenBtn.title = isFS ? 'Exit fullscreen (F11)' : 'Toggle fullscreen (F11)';
+            document.body.classList.toggle('compact-mode', isFS);
+        });
+
+        // F11 override — use Fullscreen API instead of browser default
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F11') {
+                e.preventDefault();
+                toggleFullscreen();
+            }
+        });
+
+        // ========== PWA INSTALL ==========
+        const installBtn = document.getElementById('install-btn');
+        let deferredPrompt = null;
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.style.display = 'flex';
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const result = await deferredPrompt.userChoice;
+            if (result.outcome === 'accepted') {
+                installBtn.style.display = 'none';
+            }
+            deferredPrompt = null;
+        });
+
+        window.addEventListener('appinstalled', () => {
+            installBtn.style.display = 'none';
+            deferredPrompt = null;
+        });
+
+        // ========== SERVICE WORKER REGISTRATION ==========
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+        }
+
+        // ========== STANDALONE DETECTION ==========
+        if (window.matchMedia('(display-mode: standalone)').matches ||
+            window.navigator.standalone === true) {
+            document.body.classList.add('compact-mode');
         }
 
         // Focus input
