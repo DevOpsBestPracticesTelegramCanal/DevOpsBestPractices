@@ -38,14 +38,16 @@ class SWECASClassifier:
             "optional", "uninitialized"
         ],
         200: [
-            "import", "module", "circular", "ModuleNotFoundError", "ImportError",
-            "No module named", "cannot import", "relative import", "dependency",
-            "package", "__init__"
+            # STRICT keywords only - "import", "module", "package" are too generic!
+            "ModuleNotFoundError", "ImportError", "No module named",
+            "cannot import", "circular import", "relative import",
+            "failed to import", "import error", "missing module",
+            "dependency not found", "package not installed"
         ],
         300: [
-            "TypeError", "type", "signature", "return type", "cast",
+            "TypeError", "type error", "signature", "return type", "cast",
             "incompatible", "expected.*got", "type mismatch", "annotation",
-            "overload", "generic"
+            "overload", "generic", "subclass", "isinstance", "type check"
         ],
         400: [
             "deprecated", "DeprecationWarning", "API", "version", "breaking change",
@@ -54,18 +56,21 @@ class SWECASClassifier:
         ],
         500: [
             "validation", "security", "assert", "input check", "ValueError",
-            "sanitize", "validate", "check", "verify", "raise.*Error",
-            "should raise", "must raise", "invalid.*name", "invalid.*value"
+            "sanitize", "validate", "verify", "raise.*Error",
+            "should raise", "must raise", "invalid", "not valid",
+            "validation error", "constraint", "bounds check"
         ],
         600: [
             "logic", "condition", "if/else", "control flow", "off-by-one",
             "wrong branch", "incorrect result", "wrong behavior", "algorithm",
-            "predicate", "loop"
+            "predicate", "loop", "bug", "wrong", "incorrect", "broken",
+            "fails", "doesn't work", "not working", "unexpected"
         ],
         700: [
-            "config", "environment", "path", "env var", "settings",
+            "config", "environment", "env var", "settings",
             "configuration", "ENV", "working directory", "fixture",
-            "framework setting"
+            "framework setting", "import-mode", "import mode",
+            "test config", "pytest config", "conftest"
         ],
         800: [
             "performance", "slow", "memory", "leak", "N+1", "optimize",
