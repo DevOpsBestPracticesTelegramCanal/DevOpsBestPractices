@@ -39,6 +39,8 @@ Usage:
 """
 
 import os
+import gc
+import stat
 import subprocess
 import shutil
 import tempfile
@@ -48,6 +50,42 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
+
+
+def _windows_safe_rmtree(path: Path, max_retries: int = 3):
+    """
+    Windows-safe rmtree with retry logic for locked files.
+
+    Handles:
+    - Read-only files (git .pack files)
+    - Locked files (retry with delay)
+    - Garbage collection before delete
+    """
+    def on_rm_error(func, path, exc_info):
+        """Error handler for shutil.rmtree"""
+        # Try to remove read-only flag
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            pass
+
+    # Force garbage collection to release file handles
+    gc.collect()
+
+    for attempt in range(max_retries):
+        try:
+            if Path(path).exists():
+                shutil.rmtree(path, onerror=on_rm_error)
+            return True
+        except (PermissionError, OSError) as e:
+            if attempt < max_retries - 1:
+                gc.collect()
+                time.sleep(0.5 * (attempt + 1))  # Progressive delay
+            else:
+                print(f"  [WARN] Could not delete {path}: {e}")
+                return False
+    return False
 
 
 class PatchFormat(Enum):
@@ -310,7 +348,7 @@ class RepositoryManager:
         if create_backup:
             backup_path = str(repo_path) + "_backup"
             if Path(backup_path).exists():
-                shutil.rmtree(backup_path)
+                _windows_safe_rmtree(Path(backup_path))
             shutil.copytree(repo_path, backup_path)
 
         try:
@@ -708,7 +746,7 @@ class RepositoryManager:
             return False
 
         try:
-            shutil.rmtree(repo_path)
+            _windows_safe_rmtree(repo_path)
             shutil.copytree(backup_path, repo_path)
             return True
         except Exception as e:
@@ -731,11 +769,11 @@ class RepositoryManager:
             if task_id in self.active_tasks:
                 task_path = self.active_tasks[task_id]
                 if task_path.exists():
-                    shutil.rmtree(task_path)
+                    _windows_safe_rmtree(task_path)
                 # Also remove backup
                 backup_path = Path(str(task_path) + "_backup")
                 if backup_path.exists():
-                    shutil.rmtree(backup_path)
+                    _windows_safe_rmtree(backup_path)
                 del self.active_tasks[task_id]
         else:
             # Clean all task directories
@@ -743,7 +781,7 @@ class RepositoryManager:
                 if path.is_dir():
                     if keep_cache and path.name.startswith("cache_"):
                         continue
-                    shutil.rmtree(path)
+                    _windows_safe_rmtree(path)
             self.active_tasks.clear()
 
     def get_statistics(self) -> Dict[str, Any]:

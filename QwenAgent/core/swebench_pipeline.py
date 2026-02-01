@@ -78,6 +78,9 @@ class PipelineStage(Enum):
     TEST = "test"
     COMPLETE = "complete"
     FAILED = "failed"
+    # Aliases for compatibility
+    TESTS_PASSED = "complete"  # alias
+    SUCCESS = "complete"       # alias
 
 
 @dataclass
@@ -104,6 +107,24 @@ class PipelineResult:
     total_time_ms: float = 0.0
     repo_path: str = ""
     error: str = ""
+
+    # Aliases for compatibility
+    @property
+    def success(self) -> bool:
+        """Alias for passed"""
+        return self.passed
+
+    @property
+    def stage(self) -> str:
+        """Alias for stage_reached.value"""
+        return self.stage_reached.value
+
+    @property
+    def response(self) -> str:
+        """Get response from best attempt"""
+        if self.best_attempt:
+            return self.best_attempt.patch
+        return ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
