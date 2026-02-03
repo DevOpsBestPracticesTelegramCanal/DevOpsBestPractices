@@ -2,11 +2,25 @@
 """
 QwenAgent CoT Engine - Chain-of-Thought Reasoning
 Deep thinking mode for complex tasks
+
+Phase 2 Integration: TimeBudget support for step-wise timeout management
 """
 
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass
+from typing import Dict, Any, List, Optional, Callable
+from dataclasses import dataclass, field
 from enum import Enum
+import time
+
+# Import TimeBudget for Phase 2 integration
+try:
+    from .time_budget import TimeBudget, BudgetPresets, StepRecord
+    from .budget_estimator import BudgetEstimator, create_mode_budget
+    from .execution_mode import ExecutionMode
+    from .user_timeout_config import UserTimeoutPreferences
+    BUDGET_AVAILABLE = True
+except ImportError:
+    BUDGET_AVAILABLE = False
+
 
 class ThinkingStep(Enum):
     UNDERSTAND = "understanding"
@@ -14,6 +28,15 @@ class ThinkingStep(Enum):
     EXECUTE = "executing"
     VERIFY = "verifying"
     REFLECT = "reflecting"
+    # DEEP3 steps
+    ANALYZE = "analyze"
+    # DEEP6 steps (Minsky)
+    CHALLENGES = "challenges"
+    APPROACHES = "approaches"
+    CONSTRAINTS = "constraints"
+    CHOOSE = "choose"
+    SOLUTION = "solution"
+
 
 @dataclass
 class CoTStep:
@@ -22,25 +45,211 @@ class CoTStep:
     thought: str
     action: Optional[str] = None
     result: Optional[str] = None
+    elapsed_seconds: float = 0.0
+    budget_used: float = 0.0
+
+
+@dataclass
+class CoTResult:
+    """Result of CoT execution with budget tracking"""
+    steps: List[CoTStep]
+    total_elapsed: float
+    budget_exhausted: bool = False
+    final_step_reached: str = ""
+    savings_accumulated: float = 0.0
+
 
 class CoTEngine:
     """
     Chain-of-Thought Engine for complex reasoning
     Implements structured thinking process
+
+    Phase 2: Integrated TimeBudget support
+    - Allocates time budget per step
+    - Transfers savings between steps
+    - Gracefully handles budget exhaustion
     """
 
-    def __init__(self):
+    # Step mappings for different modes
+    DEEP3_STEPS = ["analyze", "plan", "execute"]
+    DEEP6_STEPS = ["understanding", "challenges", "approaches",
+                   "constraints", "choose", "solution"]
+
+    def __init__(self, user_prefs: 'UserTimeoutPreferences' = None):
         self.current_chain: List[CoTStep] = []
         self.deep_mode = False
+        self.deep3_mode = False  # 3-step lightweight mode
+        self.budget: Optional['TimeBudget'] = None
+        self.user_prefs = user_prefs
+        self._step_callbacks: List[Callable] = []
 
     def enable_deep_mode(self, enabled: bool = True):
-        """Enable/disable deep thinking mode"""
+        """Enable/disable deep thinking mode (6 steps)"""
         self.deep_mode = enabled
+        if enabled:
+            self.deep3_mode = False  # Disable DEEP3 when DEEP is on
+
+    def enable_deep3_mode(self, enabled: bool = True):
+        """Enable/disable DEEP3 mode (3 steps)"""
+        self.deep3_mode = enabled
+        if enabled:
+            self.deep_mode = False  # Disable DEEP when DEEP3 is on
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PHASE 2: BUDGET MANAGEMENT
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def set_budget(self, budget: 'TimeBudget'):
+        """
+        Set time budget for CoT execution.
+
+        Args:
+            budget: TimeBudget instance with step allocations
+        """
+        self.budget = budget
+
+    def create_budget_for_mode(self, max_seconds: float = None) -> Optional['TimeBudget']:
+        """
+        Create appropriate budget based on current mode.
+
+        Args:
+            max_seconds: Maximum total seconds (uses user_prefs if None)
+
+        Returns:
+            TimeBudget configured for current mode
+        """
+        if not BUDGET_AVAILABLE:
+            return None
+
+        max_time = max_seconds
+        if max_time is None and self.user_prefs:
+            max_time = self.user_prefs.max_wait
+        if max_time is None:
+            max_time = 120.0  # Default 2 minutes
+
+        if self.deep3_mode:
+            self.budget = BudgetPresets.deep3_mode(max_time)
+        elif self.deep_mode:
+            self.budget = BudgetPresets.deep6_mode(max_time)
+        else:
+            self.budget = BudgetPresets.fast_mode(min(max_time, 30))
+
+        return self.budget
+
+    def get_step_timeout(self, step_name: str) -> float:
+        """
+        Get timeout for specific step, including accumulated savings.
+
+        Args:
+            step_name: Name of the step
+
+        Returns:
+            Timeout in seconds (includes savings from previous steps)
+        """
+        if self.budget is None:
+            return 30.0  # Default timeout
+
+        return self.budget.get_step_timeout(step_name)
+
+    def start_step(self, step_name: str) -> float:
+        """
+        Mark step as started and return its timeout.
+
+        Args:
+            step_name: Name of the step
+
+        Returns:
+            Timeout for this step in seconds
+        """
+        if self.budget is None:
+            return 30.0
+
+        self.budget.start_step(step_name)
+        return self.budget.get_step_timeout(step_name)
+
+    def end_step(self, step_name: str, success: bool = True) -> float:
+        """
+        Mark step as completed and return savings.
+
+        Args:
+            step_name: Name of the step
+            success: Whether step completed successfully
+
+        Returns:
+            Savings (positive) or overrun (negative) in seconds
+        """
+        if self.budget is None:
+            return 0.0
+
+        self.budget.complete_step(step_name)
+        # Return savings from the completed step
+        record = self.budget.records.get(step_name)
+        if record:
+            return record.savings
+        return 0.0
+
+    def is_budget_exhausted(self) -> bool:
+        """Check if total budget is exhausted."""
+        if self.budget is None:
+            return False
+        return self.budget.is_exhausted
+
+    def get_remaining_budget(self) -> float:
+        """Get remaining total budget in seconds."""
+        if self.budget is None:
+            return float('inf')
+        return self.budget.remaining
+
+    def get_budget_status(self) -> Dict[str, Any]:
+        """Get current budget status."""
+        if self.budget is None:
+            return {"budget": "none", "mode": self._get_current_mode()}
+
+        return {
+            "mode": self._get_current_mode(),
+            "total_seconds": self.budget.total,
+            "elapsed": self.budget.elapsed,
+            "remaining": self.budget.remaining,
+            "total_savings": self.budget.total_savings,
+            "steps": {
+                name: {
+                    "allocated": rec.allocated,
+                    "actual": rec.actual,
+                    "status": rec.status.value
+                }
+                for name, rec in self.budget.records.items()
+            }
+        }
+
+    def _get_current_mode(self) -> str:
+        """Get current mode name."""
+        if self.deep_mode:
+            return "deep6"
+        elif self.deep3_mode:
+            return "deep3"
+        else:
+            return "fast"
+
+    def on_step_complete(self, callback: Callable):
+        """Register callback for step completion events."""
+        self._step_callbacks.append(callback)
+
+    def _notify_step_complete(self, step_name: str, elapsed: float, savings: float):
+        """Notify callbacks about step completion."""
+        for callback in self._step_callbacks:
+            try:
+                callback(step_name, elapsed, savings)
+            except Exception:
+                pass  # Don't let callback errors break execution
 
     def create_thinking_prompt(self, task: str, context: Dict[str, Any] = None,
                                ducs_context: Dict[str, Any] = None,
                                swecas_context: Dict[str, Any] = None) -> str:
         """Create structured thinking prompt, optionally enriched with DUCS/SWECAS context"""
+        # DEEP3 mode: 3-step lightweight reasoning
+        if self.deep3_mode:
+            return self._create_deep3_prompt(task, context, ducs_context)
+
         if not self.deep_mode:
             return task
 
@@ -141,6 +350,52 @@ Now proceed with the task."""
 
         if context:
             prompt += f"\n\nAdditional context:\n{context}"
+
+        return prompt
+
+    def _create_deep3_prompt(self, task: str, context: Dict[str, Any] = None,
+                             ducs_context: Dict[str, Any] = None) -> str:
+        """
+        DEEP3 Mode: 3-step lightweight reasoning
+        Faster than full DEEP mode but more thorough than FAST
+        """
+        # Build DUCS section if available
+        ducs_section = ""
+        tools_hint = ""
+        if ducs_context and ducs_context.get("confidence", 0) >= 0.85:
+            code = ducs_context.get("ducs_code", "")
+            category = ducs_context.get("category", "")
+            name = ducs_context.get("name", "")
+            tools = ", ".join(ducs_context.get("tools", []))
+            ducs_section = f"""
+DOMAIN (DUCS {code}): {category} / {name}
+Recommended tools: {tools}
+"""
+            tools_hint = f" [{tools}]"
+
+        prompt = f"""Task: {task}
+{ducs_section}
+## DEEP3 Mode (3-step reasoning)
+
+### Step 1/3: ANALYZE 🔍
+- What is the problem/task?
+- What are the key risks or challenges?
+- What files/components are involved?
+
+### Step 2/3: PLAN 📋
+- What approach will you use?
+- What tools are needed?{tools_hint}
+- What is the expected outcome?
+
+### Step 3/3: EXECUTE ⚡
+- Implement the solution
+- Use tools to make changes
+- Verify the result
+
+Now proceed with the task."""
+
+        if context:
+            prompt += f"\n\nContext:\n{context}"
 
         return prompt
 

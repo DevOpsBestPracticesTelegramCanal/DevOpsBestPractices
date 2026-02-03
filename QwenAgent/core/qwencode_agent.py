@@ -6,6 +6,7 @@ All features of Claude Code, powered by Qwen LLM
 import os
 import re
 import json
+import time
 import requests
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
@@ -18,29 +19,32 @@ from .plan_mode import PlanMode
 from .subagent import SubAgentManager, TaskTracker, TaskTool
 from .ducs_classifier import DUCSClassifier
 from .swecas_classifier import SWECASClassifier
+from .deep6_minsky import Deep6Minsky, Deep6Result  # Full 6-step Minsky CoT
 
+# CANONICAL ExecutionMode - единственное определение в проекте
+from .execution_mode import ExecutionMode, ESCALATION_CHAIN, normalize_mode
 
-class ExecutionMode:
-    """Режимы выполнения с автоматической эскалацией"""
-    FAST = "fast"           # Быстрые запросы (по умолчанию)
-    DEEP = "deep"           # Критические задачи (6 шагов Мински)
-    DEEP_SEARCH = "deep_search"  # Поиск в интернете
+# Phase 1: Timeout Management System
+from .timeout_llm_client import (
+    TimeoutLLMClient,
+    TimeoutConfig,
+    GenerationMetrics,
+    LLMTimeoutError,
+    TTFTTimeoutError,
+    IdleTimeoutError,
+    AbsoluteTimeoutError
+)
+from .user_timeout_config import load_user_config, UserTimeoutPreferences
 
-    # Цепочка эскалации при timeout
-    ESCALATION_CHAIN = {
-        FAST: DEEP,
-        DEEP: DEEP_SEARCH,
-        DEEP_SEARCH: None  # Конец цепочки
-    }
+# Phase 2: Budget Management System
+from .time_budget import TimeBudget, BudgetPresets
+from .budget_estimator import BudgetEstimator, create_mode_budget
 
-    @classmethod
-    def get_icon(cls, mode):
-        icons = {
-            cls.FAST: "⚡",
-            cls.DEEP: "🧠",
-            cls.DEEP_SEARCH: "🌐"
-        }
-        return icons.get(mode, "")
+# Phase 3: Predictive Timeout Estimator
+from .predictive_estimator import PredictiveEstimator, PredictionResult, predict_timeout
+
+# Phase 4: Intent-Aware Scheduler
+from .intent_scheduler import IntentScheduler, StreamAnalyzer, SchedulerDecision
 
 
 @dataclass
@@ -54,7 +58,7 @@ class QwenCodeConfig:
     deep_mode: bool = False
     verbose: bool = True
     # Новые параметры режимов
-    execution_mode: str = ExecutionMode.FAST
+    execution_mode: ExecutionMode = ExecutionMode.FAST
     auto_escalation: bool = True  # Автоматическая эскалация при timeout
     escalation_timeout: int = 30  # Timeout для эскалации (секунды)
     # Search backend: "auto" | "duckduckgo" | "searxng"
@@ -130,13 +134,40 @@ Current working directory: {working_dir}
     def __init__(self, config: QwenCodeConfig = None):
         self.config = config or QwenCodeConfig()
 
+        # Phase 1: Load user timeout preferences from .qwencoderules
+        self.user_prefs = load_user_config(self.config.working_dir)
+        self.timeout_config = self.user_prefs.to_timeout_config()
+
+        # Phase 1: Initialize TimeoutLLMClient with user preferences
+        self.llm_client = TimeoutLLMClient(
+            base_url=self.config.ollama_url,
+            timeout_config=self.timeout_config
+        )
+
         # Core components
         self.router = HybridRouter()
-        self.cot_engine = CoTEngine()
+        self.cot_engine = CoTEngine(user_prefs=self.user_prefs)  # Phase 2: Pass user_prefs
         self.plan_mode = PlanMode()
         self.task_tracker = TaskTracker()
         self.ducs = DUCSClassifier()
         self.swecas = SWECASClassifier()
+
+        # Phase 2: Budget Estimator
+        self.budget_estimator = BudgetEstimator(self.user_prefs)
+
+        # Phase 3: Predictive Timeout Estimator
+        history_file = os.path.join(self.config.working_dir, ".qwencode_predictions.json")
+        self.predictive_estimator = PredictiveEstimator(history_file=history_file)
+
+        # Phase 4: Intent-Aware Scheduler
+        self.intent_scheduler = IntentScheduler()
+
+        # Deep6 Minsky engine (full 6-step CoT with iterative rollback)
+        self.deep6_engine = Deep6Minsky(
+            fast_model=getattr(config, 'fast_model', None) if config else None,
+            heavy_model=getattr(config, 'heavy_model', None) if config else None,
+            enable_adversarial=True
+        )
 
         # Sub-agent manager (needs LLM client)
         self.subagent_manager = SubAgentManager(self._call_llm_simple)
@@ -154,14 +185,27 @@ Current working directory: {working_dir}
             "llm_calls": 0,
             "pattern_matches": 0,
             "cot_sessions": 0,
+            "deep6_sessions": 0,  # Full 6-step Minsky sessions
+            "deep6_rollbacks": 0,  # Rollbacks triggered by Self-Reflective step
             "plan_mode_sessions": 0,
             "mode_escalations": 0,
-            "web_searches": 0
+            "web_searches": 0,
+            # Phase 2: Budget tracking
+            "budget_exhaustions": 0,  # Times budget ran out
+            "budget_savings_total": 0.0,  # Total time saved
+            "budget_overruns": 0,  # Times steps exceeded budget
+            # Phase 3: Prediction tracking
+            "predictions_made": 0,
+            "prediction_accuracy_sum": 0.0,
+            # Phase 4: Intent tracking
+            "intent_early_exits": 0,
+            "intent_extensions": 0
         }
 
         # Mode tracking
         self.current_mode = self.config.execution_mode
         self.mode_history = []  # История переключений режимов
+        self.search_deep_analysis_mode = ExecutionMode.DEEP3  # Режим анализа для Search+Deep (DEEP3 или DEEP6)
 
     def process(self, user_input: str) -> Dict[str, Any]:
         """
@@ -229,12 +273,34 @@ Current working directory: {working_dir}
             result["swecas_confidence"] = swecas_result.get("confidence", 0)
         self._current_swecas = swecas_result
 
+        # STEP 1.8: Phase 3 - Predictive timeout estimation
+        prediction_context = {
+            "pre_read_content": pre_read_content,
+            "ducs_code": ducs_result.get("ducs_code"),
+            "swecas_code": swecas_result.get("swecas_code")
+        }
+        self._current_prediction = self.predictive_estimator.predict(
+            mode=self.current_mode.value,
+            prompt=user_input,
+            model=self.config.model,
+            context=prediction_context
+        )
+        result["predicted_timeout"] = self._current_prediction.timeout
+        result["prediction_confidence"] = self._current_prediction.confidence
+        result["task_complexity"] = self._current_prediction.complexity.value
+        self.stats["predictions_made"] += 1
+        self._task_start_time = time.time()  # Track actual execution time
+
         # STEP 2: LLM processing
         result["route_method"] = "llm"
 
-        # Build context
+        # Build context (exclude web_search tools when not in SEARCH mode)
+        exclude_tools = []
+        if not self.current_mode.is_search:
+            exclude_tools = ['web_search', 'web_search_searxng']
+
         system_prompt = self.SYSTEM_PROMPT.format(
-            tools_description=get_tools_description(),
+            tools_description=get_tools_description(exclude=exclude_tools),
             working_dir=self.working_dir
         )
 
@@ -242,17 +308,53 @@ Current working directory: {working_dir}
         if self.plan_mode.is_active:
             system_prompt += "\n\n[PLAN MODE ACTIVE - Read-only operations only until plan is approved]"
 
-        # CoT mode for complex tasks (SWECAS-enhanced when applicable)
-        if self.config.deep_mode or self._is_complex_task(user_input):
+        # CoT mode based on current_mode (SWECAS-enhanced when applicable)
+        is_deep6 = self.current_mode == ExecutionMode.DEEP6
+        is_deep3 = self.current_mode == ExecutionMode.DEEP3
+        use_legacy_deep = self.config.deep_mode and not is_deep6
+
+        # DEEP6 MODE: Use full 6-step Minsky engine with iterative rollback
+        if is_deep6:
+            deep6_result = self._process_deep6(
+                user_input,
+                pre_read_context=pre_read_context,
+                ducs_result=ducs_result,
+                swecas_result=swecas_result
+            )
+            # Merge Deep6 result into main result
+            result["response"] = deep6_result.get("response", "")
+            result["tool_calls"] = deep6_result.get("tool_calls", [])
+            result["thinking"] = deep6_result.get("thinking", [])
+            result["deep6_audit"] = deep6_result.get("audit", {})
+            result["deep6_iterations"] = deep6_result.get("iterations", 1)
+            result["deep6_rollbacks"] = deep6_result.get("rollbacks", [])
+            result["route_method"] = "deep6_minsky"
+            return result
+
+        # DEEP3 or legacy deep mode
+        if use_legacy_deep or self._is_complex_task(user_input):
             self.stats["cot_sessions"] += 1
             self.cot_engine.enable_deep_mode(True)
+            # Phase 2: Create budget for deep mode
+            self.cot_engine.create_budget_for_mode()
             # Use SWECAS context if confidence is high enough
             swecas_ctx = swecas_result if swecas_result.get("confidence", 0) >= 0.6 else None
             prompt = self.cot_engine.create_thinking_prompt(
                 user_input, ducs_context=ducs_result, swecas_context=swecas_ctx
             )
+        elif is_deep3:
+            self.stats["cot_sessions"] += 1
+            self.cot_engine.enable_deep3_mode(True)
+            # Phase 2: Create budget for deep3 mode
+            self.cot_engine.create_budget_for_mode()
+            prompt = self.cot_engine.create_thinking_prompt(
+                user_input, ducs_context=ducs_result
+            )
         else:
             self.cot_engine.enable_deep_mode(False)
+            self.cot_engine.enable_deep3_mode(False)
+            # Phase 2: Create budget for fast mode
+            self.cot_engine.create_budget_for_mode()
             prompt = user_input
 
         # Inject pre-read file content into prompt (NO-LLM optimization)
@@ -279,7 +381,17 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
             iteration += 1
             result["iterations"] = iteration
 
-            # Call LLM
+            # Phase 2: Check budget before LLM call
+            if self.cot_engine.is_budget_exhausted():
+                result["response"] = "[Budget exhausted] " + (full_response or "Task incomplete due to time limit.")
+                result["budget_exhausted"] = True
+                self.stats["budget_exhaustions"] += 1
+                break
+
+            # Phase 2: Get remaining budget (budget tracks elapsed time automatically)
+            remaining_budget = self.cot_engine.get_remaining_budget()
+
+            # Call LLM with budget-aware timeout
             llm_response = self._call_llm(current_prompt, system_prompt)
             self.stats["llm_calls"] += 1
 
@@ -339,6 +451,32 @@ Task: {user_input}"""
         if self.config.deep_mode:
             cot_steps = self.cot_engine.parse_cot_response(full_response)
             result["thinking"] = [step.thought for step in cot_steps if step.thought]
+
+        # Phase 2: Add budget status to result
+        budget_status = self.cot_engine.get_budget_status()
+        result["budget"] = budget_status
+        if budget_status.get("remaining", float('inf')) <= 0:
+            self.stats["budget_exhaustions"] += 1
+        if budget_status.get("total_savings", 0) > 0:
+            self.stats["budget_savings_total"] += budget_status["total_savings"]
+
+        # Phase 3: Record prediction outcome for learning
+        if hasattr(self, '_current_prediction') and self._current_prediction:
+            actual_time = time.time() - getattr(self, '_task_start_time', time.time())
+            result["actual_time"] = actual_time
+            # Determine success based on whether we got a response
+            success = bool(result.get("response")) and "Error" not in result.get("response", "")
+            # Record for ML learning
+            self.predictive_estimator.record_outcome(
+                prediction_id=self._current_prediction.id,
+                actual_seconds=actual_time,
+                success=success,
+                tokens_generated=result.get("iterations", 1) * 100  # Rough estimate
+            )
+            # Track accuracy
+            if self._current_prediction.timeout > 0:
+                accuracy = actual_time / self._current_prediction.timeout
+                self.stats["prediction_accuracy_sum"] += accuracy
 
         # Store in history
         self.conversation_history.append({
@@ -401,24 +539,84 @@ Task: {user_input}"""
         # STEP 2: LLM processing
         yield {"event": "status", "text": "Thinking..."}
 
+        # Exclude web_search tools when not in SEARCH mode
+        exclude_tools = []
+        if not self.current_mode.is_search:
+            exclude_tools = ['web_search', 'web_search_searxng']
+
         system_prompt = self.SYSTEM_PROMPT.format(
-            tools_description=get_tools_description(),
+            tools_description=get_tools_description(exclude=exclude_tools),
             working_dir=self.working_dir
         )
 
         if self.plan_mode.is_active:
             system_prompt += "\n\n[PLAN MODE ACTIVE - Read-only operations only until plan is approved]"
 
-        # CoT mode (SWECAS-enhanced when applicable)
-        if self.config.deep_mode or self._is_complex_task(user_input):
+        # CoT mode based on current_mode (SWECAS-enhanced when applicable)
+        is_deep6 = self.current_mode == ExecutionMode.DEEP6
+        is_deep3 = self.current_mode == ExecutionMode.DEEP3
+        use_legacy_deep = self.config.deep_mode and not is_deep6
+
+        # DEEP6 MODE: Use full 6-step Minsky engine (streaming events)
+        if is_deep6:
+            yield {"event": "status", "text": "Deep6 Minsky: Starting 6-step pipeline..."}
+
+            # Define streaming callback
+            def on_step_stream(step_name: str, output: str):
+                pass  # We'll yield events after execution
+
+            # Execute Deep6 pipeline
+            deep6_result = self.deep6_engine.execute(
+                query=user_input,
+                context=pre_read_context.get("content", "")[:2000] if pre_read_context else "",
+                verbose=False,
+                on_step=on_step_stream
+            )
+
+            self.stats["deep6_sessions"] += 1
+            if deep6_result.rollback_reasons:
+                self.stats["deep6_rollbacks"] += len(deep6_result.rollback_reasons)
+
+            # Yield step events
+            for step_name in deep6_result.call_sequence:
+                yield {"event": "status", "text": f"Deep6: {step_name}"}
+
+            # Yield rollback events if any
+            for reason in deep6_result.rollback_reasons:
+                yield {"event": "status", "text": f"Deep6 ROLLBACK: {reason}"}
+
+            # Yield audit info
+            if deep6_result.audit_results:
+                audit = deep6_result.audit_results[-1]
+                yield {"event": "thinking", "steps": [
+                    f"Risk Score: {audit.overall_risk_score}/10",
+                    f"Decision: {audit.decision}",
+                    f"Vulnerabilities: {len(audit.vulnerabilities_found)}"
+                ]}
+
+            # Yield final response
+            response = deep6_result.final_code or deep6_result.final_explanation or "No output"
+            yield {"event": "response", "text": response, "route_method": "deep6_minsky"}
+            yield {"event": "done"}
+            return
+
+        # DEEP3 or legacy deep mode
+        if use_legacy_deep or self._is_complex_task(user_input):
             self.stats["cot_sessions"] += 1
             self.cot_engine.enable_deep_mode(True)
             swecas_ctx = swecas_result if swecas_result.get("confidence", 0) >= 0.6 else None
             prompt = self.cot_engine.create_thinking_prompt(
                 user_input, ducs_context=ducs_result, swecas_context=swecas_ctx
             )
+        elif is_deep3:
+            self.stats["cot_sessions"] += 1
+            self.cot_engine.enable_deep3_mode(True)
+            prompt = self.cot_engine.create_thinking_prompt(
+                user_input, ducs_context=ducs_result
+            )
         else:
             self.cot_engine.enable_deep_mode(False)
+            self.cot_engine.enable_deep3_mode(False)
             prompt = user_input
 
         # Inject pre-read file content (line numbers stripped for exact matching)
@@ -496,8 +694,18 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
         return 2048      # Unknown, full output
 
     def _call_llm(self, prompt: str, system: str = None) -> Optional[str]:
-        """Call Ollama LLM using generate API"""
+        """
+        Call Ollama LLM with Phase 1 timeout management.
+
+        Features:
+        - TTFT timeout (model not starting)
+        - Idle timeout (model stuck)
+        - Absolute max timeout
+        - Automatic fallback to lighter model
+        - Partial result preservation
+        """
         try:
+            # Build full prompt with history
             full_prompt = ""
             if system:
                 full_prompt = f"System: {system}\n\n"
@@ -508,24 +716,41 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
 
             full_prompt += f"User: {prompt}\n\nAssistant:"
 
-            num_predict = self._get_num_predict(getattr(self, '_current_ducs', None))
-
-            response = requests.post(
-                f"{self.config.ollama_url}/api/generate",
-                json={
-                    "model": self.config.model,
-                    "prompt": full_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "num_predict": num_predict
-                    }
-                },
-                timeout=180
+            # Get timeout config based on current mode
+            mode_budget = self.user_prefs.get_mode_budget(self.current_mode.value)
+            timeout_override = TimeoutConfig(
+                ttft_timeout=self.timeout_config.ttft_timeout,
+                idle_timeout=self.timeout_config.idle_timeout,
+                absolute_max=mode_budget
             )
 
-            if response.status_code == 200:
-                return response.json().get("response", "")
+            # Get model config
+            models = self.user_prefs.get_model_config()
+            primary_model = self.config.model
+            fallback_model = models.get('fallback', 'qwen2.5-coder:3b')
+
+            # Call with fallback support
+            result, metrics = self.llm_client.generate_with_fallback(
+                prompt=full_prompt,
+                model=primary_model,
+                fallback_model=fallback_model,
+                timeout_override=timeout_override
+            )
+
+            # Track metrics
+            self.stats["llm_calls"] += 1
+            if metrics.timeout_reason and 'fallback' in str(metrics.timeout_reason):
+                if self.config.verbose:
+                    print(f"[FALLBACK] {primary_model} → {fallback_model}")
+
+            return result
+
+        except LLMTimeoutError as e:
+            if self.config.verbose:
+                print(f"[TIMEOUT] {e.metrics.timeout_reason}: {e.metrics.tokens_generated} tokens in {e.metrics.total_time:.1f}s")
+            # Return partial result if available
+            if e.partial_result:
+                return e.partial_result
             return None
 
         except Exception as e:
@@ -534,46 +759,62 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
             return None
 
     def _call_llm_search(self, prompt: str) -> Optional[str]:
-        """Lightweight LLM call for search result analysis"""
+        """
+        Lightweight LLM call for search result analysis.
+
+        Uses shorter timeouts for faster response.
+        """
         try:
-            response = requests.post(
-                f"{self.config.ollama_url}/api/generate",
-                json={
-                    "model": self.config.model,
-                    "prompt": f"User: {prompt}\n\nAssistant:",
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,
-                        "num_predict": 256
-                    }
-                },
-                timeout=120
+            # Shorter timeouts for search analysis
+            search_timeout = TimeoutConfig(
+                ttft_timeout=15,
+                idle_timeout=10,
+                absolute_max=60
             )
-            if response.status_code == 200:
-                return response.json().get("response", "")
-            return None
+
+            result, metrics = self.llm_client.generate_safe(
+                prompt=f"User: {prompt}\n\nAssistant:",
+                model=self.config.model,
+                timeout_override=search_timeout,
+                default_on_error=""
+            )
+
+            return result if result else None
+
         except Exception as e:
             if self.config.verbose:
                 print(f"LLM Search Error: {e}")
             return None
 
     def _call_llm_simple(self, prompt: str, system: str = None) -> str:
-        """Simple LLM call for sub-agents"""
+        """
+        Simple LLM call for sub-agents.
+
+        Uses generate_safe to always return something (never throws).
+        """
         try:
-            response = requests.post(
-                f"{self.config.ollama_url}/api/generate",
-                json={
-                    "model": self.config.model,
-                    "prompt": prompt,
-                    "system": system or "",
-                    "stream": False
-                },
-                timeout=self.config.timeout
+            # Prepare prompt with system
+            full_prompt = prompt
+            if system:
+                full_prompt = f"System: {system}\n\n{prompt}"
+
+            # Simple timeout config
+            simple_timeout = TimeoutConfig(
+                ttft_timeout=20,
+                idle_timeout=12,
+                absolute_max=self.config.timeout
             )
-            if response.status_code == 200:
-                return response.json().get("response", "")
-            return ""
-        except:
+
+            result, metrics, error = self.llm_client.generate_safe(
+                prompt=full_prompt,
+                model=self.config.model,
+                timeout_override=simple_timeout,
+                default_on_error=""
+            )
+
+            return result
+
+        except Exception:
             return ""
 
     # Valid parameters for each tool (for filtering invalid LLM arguments)
@@ -759,27 +1000,39 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
 /plan status      - Show plan status
 /tasks            - List tasks
 /stats            - Show statistics
+/deep6 stats      - Show Deep6 Minsky statistics
 /clear            - Clear conversation
 /model            - Show current model
 
 MODE SWITCHING:
 /mode             - Show current mode status
 /mode fast        - Switch to FAST mode (quick queries)
-/mode deep        - Switch to DEEP mode (CoT reasoning)
-/mode search      - Switch to DEEP SEARCH mode (web search)
+/mode deep3       - Switch to DEEP3 mode (3-step CoT)
+/mode deep        - Switch to DEEP6 mode (6-step Minsky)
+/mode search      - Switch to SEARCH mode (web search)
 /deep on          - Enable deep mode (alias for /mode deep)
 /deep off         - Disable deep mode (alias for /mode fast)
 /escalation on    - Enable auto-escalation
 /escalation off   - Disable auto-escalation
 
 MODE PREFIXES (in queries):
-[DEEP] query      - Run query in DEEP mode
-[SEARCH] query    - Run query in DEEP SEARCH mode
+[DEEP3] query     - Run query in DEEP3 mode (3 steps)
+[DEEP6] query     - Run query in DEEP6 mode (6-step Minsky)
+[DEEP] query      - Run query in DEEP6 mode
+[SEARCH] query    - Run query in SEARCH mode
 --deep query      - Run query in DEEP mode
---search query    - Run query in DEEP SEARCH mode
+--search query    - Run query in SEARCH mode
+
+DEEP6 MINSKY (6-step cognitive pipeline):
+1. REACTION       - Quick classification
+2. DELIBERATION   - Pattern matching
+3. REFLECTIVE     - Method analysis
+4. SELF-REFLECTIVE - Critical audit (can trigger ROLLBACK)
+5. SELF-CONSTRUCTIVE - Code synthesis
+6. VALUES/IDEALS  - Final verification
 
 ESCALATION:
-FAST --timeout--> DEEP --timeout--> DEEP SEARCH
+FAST -> DEEP3 -> DEEP6 -> SEARCH
 """
             }
 
@@ -811,7 +1064,22 @@ FAST --timeout--> DEEP --timeout--> DEEP SEARCH
             return {"response": "No tasks"}
 
         elif cmd == "/stats":
-            return {"response": json.dumps(self.stats, indent=2)}
+            stats_output = {
+                **self.stats,
+                "deep6_engine": self.deep6_engine.get_statistics()
+            }
+            return {"response": json.dumps(stats_output, indent=2)}
+
+        elif cmd == "/deep6 stats":
+            deep6_stats = self.get_deep6_stats()
+            engine_stats = deep6_stats["engine_stats"]
+            return {"response": f"""Deep6 Minsky Statistics:
+Sessions: {deep6_stats['sessions']}
+Rollbacks: {deep6_stats['rollbacks']}
+Avg Duration: {engine_stats.get('avg_duration_ms', 0):.0f}ms
+Avg Risk Score: {engine_stats.get('avg_risk_score', 0):.1f}/10
+Adversarial Catches: {engine_stats.get('adversarial_catches', 0)}
+Total Rollbacks (engine): {engine_stats.get('total_rollbacks', 0)}"""}
 
         elif cmd == "/clear":
             self.conversation_history.clear()
@@ -821,8 +1089,8 @@ FAST --timeout--> DEEP --timeout--> DEEP SEARCH
             return {"response": f"Model: {self.config.model}\nURL: {self.config.ollama_url}"}
 
         elif cmd == "/deep on":
-            result = self.switch_mode(ExecutionMode.DEEP, reason="manual")
-            return {"response": f"{result['message']}\nDeep mode (Chain-of-Thought) enabled"}
+            result = self.switch_mode(ExecutionMode.DEEP6, reason="manual")
+            return {"response": f"{result['message']}\nDeep6 mode (6-step Minsky CoT) enabled"}
 
         elif cmd == "/deep off":
             result = self.switch_mode(ExecutionMode.FAST, reason="manual")
@@ -832,23 +1100,30 @@ FAST --timeout--> DEEP --timeout--> DEEP SEARCH
         elif cmd == "/mode":
             status = self.get_mode_status()
             icon = status["icon"]
+            deep6_stats = self.get_deep6_stats()
             return {"response": f"""Current Mode: {icon} {status['current_mode'].upper()}
 Auto-escalation: {'ON' if status['auto_escalation'] else 'OFF'}
 Escalations: {status['escalations_count']}
 Web searches: {status['web_searches_count']}
+Deep6 sessions: {deep6_stats['sessions']}
+Deep6 rollbacks: {deep6_stats['rollbacks']}
 
-Use /mode fast|deep|search to switch"""}
+Use /mode fast|deep3|deep|search to switch"""}
 
         elif cmd == "/mode fast":
             result = self.switch_mode(ExecutionMode.FAST, reason="manual")
             return {"response": result["message"]}
 
-        elif cmd == "/mode deep":
-            result = self.switch_mode(ExecutionMode.DEEP, reason="manual")
+        elif cmd == "/mode deep3":
+            result = self.switch_mode(ExecutionMode.DEEP3, reason="manual")
+            return {"response": result["message"]}
+
+        elif cmd == "/mode deep" or cmd == "/mode deep6":
+            result = self.switch_mode(ExecutionMode.DEEP6, reason="manual")
             return {"response": result["message"]}
 
         elif cmd == "/mode search" or cmd == "/mode deepsearch":
-            result = self.switch_mode(ExecutionMode.DEEP_SEARCH, reason="manual")
+            result = self.switch_mode(ExecutionMode.SEARCH, reason="manual")
             return {"response": result["message"]}
 
         elif cmd == "/escalation on":
@@ -950,6 +1225,140 @@ Use /mode fast|deep|search to switch"""}
         input_lower = user_input.lower()
         return any(ind in input_lower for ind in complex_indicators)
 
+    # ==================== DEEP6 MINSKY PROCESSING ====================
+
+    def _process_deep6(
+        self,
+        user_input: str,
+        pre_read_context: Optional[Dict] = None,
+        ducs_result: Optional[Dict] = None,
+        swecas_result: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        Process using Deep6 Minsky engine (full 6-step CoT with iterative rollback).
+
+        Steps (per Minsky's cognitive hierarchy):
+        1. REACTION - Quick classification
+        2. DELIBERATION - Pattern matching
+        3. REFLECTIVE - Method analysis
+        4. SELF-REFLECTIVE - Critical audit (CAN TRIGGER ROLLBACK)
+        5. SELF-CONSTRUCTIVE - Code synthesis
+        6. VALUES/IDEALS - Final verification
+
+        Returns structured result with code, audit, and rollback info.
+        """
+        self.stats["deep6_sessions"] += 1
+
+        # Build context from pre-read and classifications
+        context = ""
+        if pre_read_context and pre_read_context.get("content"):
+            file_path = pre_read_context["file_path"]
+            file_content = pre_read_context["content"][:2000]  # Limit context
+            context += f"\n\nFile content ({file_path}):\n```\n{file_content}\n```"
+
+        if ducs_result and ducs_result.get("confidence", 0) >= 0.5:
+            context += f"\n\nDomain: DUCS-{ducs_result.get('ducs_code', '')} ({ducs_result.get('category', '')})"
+
+        if swecas_result and swecas_result.get("confidence", 0) >= 0.6:
+            context += f"\nBug pattern: SWECAS-{swecas_result.get('swecas_code', '')} ({swecas_result.get('name', '')})"
+            if swecas_result.get("fix_hint"):
+                context += f"\nFix hint: {swecas_result['fix_hint']}"
+
+        # Execute Deep6 Minsky pipeline
+        if self.config.verbose:
+            print(f"[DEEP6] Starting 6-step Minsky pipeline...")
+
+        deep6_result = self.deep6_engine.execute(
+            query=user_input,
+            context=context,
+            verbose=self.config.verbose,
+            on_step=self._on_deep6_step if self.config.verbose else None
+        )
+
+        # Track rollbacks
+        if deep6_result.rollback_reasons:
+            self.stats["deep6_rollbacks"] += len(deep6_result.rollback_reasons)
+
+        # Build response
+        response_parts = []
+
+        # Add thinking steps summary
+        thinking = []
+        for step_name, step_content in deep6_result.steps.items():
+            if step_content and len(step_content) > 10:
+                # Extract first 200 chars of each step for thinking display
+                thinking.append(f"[{step_name.upper()}] {step_content[:200]}...")
+
+        # Add main response
+        if deep6_result.final_code:
+            response_parts.append("## Generated Code\n")
+            response_parts.append(f"```python\n{deep6_result.final_code}\n```")
+
+        if deep6_result.final_explanation:
+            response_parts.append(f"\n\n## Verification\n{deep6_result.final_explanation[:500]}")
+
+        # Add audit summary if available
+        if deep6_result.audit_results:
+            last_audit = deep6_result.audit_results[-1]
+            response_parts.append(f"\n\n## Audit Summary")
+            response_parts.append(f"- Risk Score: {last_audit.overall_risk_score}/10")
+            response_parts.append(f"- Decision: {last_audit.decision}")
+            if last_audit.vulnerabilities_found:
+                response_parts.append(f"- Vulnerabilities: {len(last_audit.vulnerabilities_found)}")
+                for v in last_audit.vulnerabilities_found[:3]:
+                    response_parts.append(f"  - [{v.severity}] {v.description}")
+
+        # Add rollback info if any
+        if deep6_result.rollback_reasons:
+            response_parts.append(f"\n\n## Rollbacks")
+            response_parts.append(f"Iterations: {deep6_result.iterations}")
+            for reason in deep6_result.rollback_reasons:
+                response_parts.append(f"- {reason}")
+
+        response = "\n".join(response_parts) if response_parts else deep6_result.final_code or "No output generated"
+
+        # Build tool calls from Deep6 (if code contains tool patterns)
+        tool_calls = []
+        if deep6_result.final_code and pre_read_context:
+            # If we have pre-read context and generated code, suggest edit
+            tool_calls.append({
+                "tool": "edit_suggestion",
+                "params": {
+                    "file_path": pre_read_context["file_path"],
+                    "code": deep6_result.final_code
+                },
+                "result": {"suggested": True, "from": "deep6_minsky"}
+            })
+
+        return {
+            "success": deep6_result.success,
+            "response": response,
+            "tool_calls": tool_calls,
+            "thinking": thinking,
+            "audit": deep6_result.audit_results[-1].to_dict() if deep6_result.audit_results else {},
+            "iterations": deep6_result.iterations,
+            "rollbacks": deep6_result.rollback_reasons,
+            "call_sequence": deep6_result.call_sequence,
+            "duration_ms": deep6_result.total_duration_ms,
+            "task_type": deep6_result.task_type.value,
+            "has_code": deep6_result.has_code,
+            "adversarial_passed": deep6_result.adversarial_passed
+        }
+
+    def _on_deep6_step(self, step_name: str, output: str):
+        """Callback for Deep6 step progress (verbose mode)"""
+        # Truncate output for display
+        preview = output[:100].replace('\n', ' ') if output else ""
+        print(f"  [{step_name.upper()}] {preview}...")
+
+    def get_deep6_stats(self) -> Dict[str, Any]:
+        """Get Deep6 Minsky engine statistics"""
+        return {
+            "sessions": self.stats["deep6_sessions"],
+            "rollbacks": self.stats["deep6_rollbacks"],
+            "engine_stats": self.deep6_engine.get_statistics()
+        }
+
     # ==================== MODE SWITCHING SYSTEM ====================
 
     def switch_mode(self, new_mode: str, reason: str = "manual") -> Dict[str, Any]:
@@ -965,22 +1374,31 @@ Use /mode fast|deep|search to switch"""}
         """
         old_mode = self.current_mode
 
-        if new_mode not in [ExecutionMode.FAST, ExecutionMode.DEEP, ExecutionMode.DEEP_SEARCH]:
+        # All valid modes (5 canonical modes)
+        valid_modes = [
+            ExecutionMode.FAST,
+            ExecutionMode.DEEP3,
+            ExecutionMode.DEEP6,
+            ExecutionMode.SEARCH,
+            ExecutionMode.SEARCH_DEEP
+        ]
+
+        if new_mode not in valid_modes:
             return {
                 "success": False,
-                "error": f"Unknown mode: {new_mode}. Use: fast, deep, deep_search"
+                "error": f"Unknown mode: {new_mode}. Use: fast, deep3, deep6, search, search_deep"
             }
 
         self.current_mode = new_mode
         self.config.execution_mode = new_mode
 
         # Обновляем deep_mode для совместимости
-        self.config.deep_mode = (new_mode == ExecutionMode.DEEP)
+        self.config.deep_mode = new_mode.is_deep
 
         # Запись в историю
         self.mode_history.append({
-            "from": old_mode,
-            "to": new_mode,
+            "from": old_mode.value,
+            "to": new_mode.value,
             "reason": reason,
             "timestamp": datetime.now().isoformat()
         })
@@ -988,15 +1406,15 @@ Use /mode fast|deep|search to switch"""}
         if reason == "escalation":
             self.stats["mode_escalations"] += 1
 
-        icon_old = ExecutionMode.get_icon(old_mode)
-        icon_new = ExecutionMode.get_icon(new_mode)
+        icon_old = old_mode.icon
+        icon_new = new_mode.icon
 
         return {
             "success": True,
-            "message": f"[MODE] {icon_old} {old_mode.upper()} -> {icon_new} {new_mode.upper()}",
+            "message": f"[MODE] {icon_old} {old_mode.name} -> {icon_new} {new_mode.name}",
             "reason": reason,
-            "old_mode": old_mode,
-            "new_mode": new_mode
+            "old_mode": old_mode.value,
+            "new_mode": new_mode.value
         }
 
     def escalate_mode(self) -> Dict[str, Any]:
@@ -1004,13 +1422,13 @@ Use /mode fast|deep|search to switch"""}
         Автоматическая эскалация режима при timeout
         FAST -> DEEP -> DEEP_SEARCH
         """
-        next_mode = ExecutionMode.ESCALATION_CHAIN.get(self.current_mode)
+        next_mode = ESCALATION_CHAIN.get(self.current_mode)
 
         if next_mode is None:
             return {
                 "success": False,
-                "message": "[ESCALATION] Already at maximum mode (DEEP_SEARCH)",
-                "mode": self.current_mode
+                "message": "[ESCALATION] Already at maximum mode (SEARCH_DEEP)",
+                "mode": self.current_mode.value
             }
 
         result = self.switch_mode(next_mode, reason="escalation")
@@ -1025,18 +1443,27 @@ Use /mode fast|deep|search to switch"""}
         Определить режим из пользовательского ввода
 
         Поддерживаемые форматы:
-        - [DEEP] или --deep -> DEEP MODE
-        - [SEARCH] или [DEEP SEARCH] или --search -> DEEP_SEARCH MODE
+        - [DEEP3] -> DEEP3 MODE (3 шага)
+        - [DEEP6] или [DEEP] или --deep -> DEEP MODE (6 шагов Мински)
+        - [SEARCH+DEEP] или [DEEP SEARCH] или [SEARCH] или --search -> DEEP_SEARCH MODE
         """
         input_upper = user_input.upper()
 
-        # DEEP SEARCH indicators
-        if any(ind in input_upper for ind in ["[DEEP SEARCH]", "[SEARCH]", "--SEARCH"]):
-            return ExecutionMode.DEEP_SEARCH
+        # SEARCH + DEEP indicators (комбинированный режим: search → deep analysis)
+        if any(ind in input_upper for ind in ["[SEARCH+DEEP]", "[SEARCHDEEP]"]):
+            return ExecutionMode.SEARCH_DEEP
 
-        # DEEP MODE indicators
-        if any(ind in input_upper for ind in ["[DEEP]", "--DEEP"]):
-            return ExecutionMode.DEEP
+        # Simple SEARCH (только поиск, без deep анализа)
+        if any(ind in input_upper for ind in ["[SEARCH]", "--SEARCH", "/SEARCH"]):
+            return ExecutionMode.SEARCH  # legacy: DEEP_SEARCH = simple search
+
+        # DEEP3 MODE indicators (3 шага)
+        if "[DEEP3]" in input_upper:
+            return ExecutionMode.DEEP3
+
+        # DEEP6/DEEP MODE indicators (6 шагов Мински)
+        if any(ind in input_upper for ind in ["[DEEP6]", "[DEEP]", "--DEEP"]):
+            return ExecutionMode.DEEP6
 
         # Default: current mode
         return self.current_mode
@@ -1046,11 +1473,16 @@ Use /mode fast|deep|search to switch"""}
         import re
         # Remove mode prefixes
         patterns = [
+            r'\[SEARCH\+DEEP\]\s*',
+            r'\[SEARCHDEEP\]\s*',
             r'\[DEEP\s*SEARCH\]\s*',
             r'\[SEARCH\]\s*',
+            r'\[DEEP6\]\s*',
+            r'\[DEEP3\]\s*',
             r'\[DEEP\]\s*',
             r'--deep\s+',
-            r'--search\s+'
+            r'--search\s+',
+            r'/search\s+'
         ]
         result = user_input
         for pattern in patterns:
@@ -1176,6 +1608,97 @@ Use /mode fast|deep|search to switch"""}
             "error": failed_result.get("error", "Search failed, no cache available")
         }
 
+    def _process_search_deep(self, user_input: str) -> Dict[str, Any]:
+        """
+        SEARCH + DEEP режим:
+        1. Сначала web search по запросу пользователя
+        2. Результаты поиска + запрос передаются в Deep режим (Deep3 или Deep6)
+
+        Это комбинированный режим для исследовательских задач.
+        """
+        # Step 1: Web Search
+        search_result = self.web_search(user_input)
+
+        search_context = ""
+        if search_result["success"] and search_result.get("results"):
+            search_context = "\n\n📌 WEB SEARCH RESULTS:\n"
+            for i, r in enumerate(search_result["results"][:7], 1):
+                title = r.get('title', 'No title')
+                text = r.get('text', '')[:300]
+                url = r.get('url', '')
+                search_context += f"\n[{i}] {title}\n{text}"
+                if url:
+                    search_context += f"\n    🔗 {url}"
+                search_context += "\n"
+        else:
+            search_context = "\n\n⚠️ Web search returned no results. Proceeding with Deep analysis based on existing knowledge.\n"
+
+        # Step 2: Prepare combined prompt for Deep analysis
+        combined_prompt = f"""{user_input}
+{search_context}
+
+Please analyze the above query using the web search results (if available) and provide a comprehensive answer."""
+
+        # Step 3: Temporarily switch to Deep mode and process
+        original_mode = self.current_mode
+        analysis_mode = self.search_deep_analysis_mode  # DEEP3 or DEEP6
+
+        # Switch to deep mode for analysis
+        self.current_mode = analysis_mode
+
+        # Enable appropriate CoT mode
+        if analysis_mode == ExecutionMode.DEEP6:
+            self.cot_engine.enable_deep_mode(True)
+            self.cot_engine.enable_deep3_mode(False)
+            mode_label = "Deep6 (6-step Minsky)"
+        else:
+            self.cot_engine.enable_deep3_mode(True)
+            self.cot_engine.enable_deep_mode(False)
+            mode_label = "Deep3 (3-step)"
+
+        try:
+            # Process with deep analysis
+            result = self.process(combined_prompt)
+
+            # Enhance response with search info
+            response = result.get("response", "")
+            if search_result["success"]:
+                sources = "\n\n---\n📚 **Sources:**\n"
+                for r in search_result.get("results", [])[:5]:
+                    if r.get('url'):
+                        sources += f"- [{r.get('title', 'Link')}]({r['url']})\n"
+                response += sources
+
+            result["response"] = response
+            result["mode"] = ExecutionMode.SEARCH_DEEP.value
+            result["mode_icon"] = ExecutionMode.SEARCH_DEEP.icon
+            result["route_method"] = f"search_deep ({mode_label})"
+            result["web_search"] = search_result
+
+        finally:
+            # Restore original mode
+            self.current_mode = original_mode
+            self.cot_engine.enable_deep_mode(False)
+            self.cot_engine.enable_deep3_mode(False)
+
+        return result
+
+    def set_search_deep_mode(self, deep_mode: str) -> Dict[str, Any]:
+        """
+        Установить режим глубокого анализа для Search+Deep
+
+        Args:
+            deep_mode: 'deep3' или 'deep6'
+        """
+        if deep_mode.lower() == 'deep3':
+            self.search_deep_analysis_mode = ExecutionMode.DEEP3
+            return {"success": True, "mode": "deep3", "message": "Search+Deep will use Deep3 (3-step) analysis"}
+        elif deep_mode.lower() in ['deep6', 'deep']:
+            self.search_deep_analysis_mode = ExecutionMode.DEEP6
+            return {"success": True, "mode": "deep6", "message": "Search+Deep will use Deep6 (6-step Minsky) analysis"}
+        else:
+            return {"success": False, "error": f"Unknown mode: {deep_mode}. Use 'deep3' or 'deep6'"}
+
     def process_with_mode(self, user_input: str) -> Dict[str, Any]:
         """
         Обработка с автоматическим определением режима
@@ -1202,8 +1725,8 @@ Use /mode fast|deep|search to switch"""}
             return {
                 "success": True,
                 "response": special["response"],
-                "mode": self.current_mode,
-                "mode_icon": ExecutionMode.get_icon(self.current_mode),
+                "mode": self.current_mode.value,
+                "mode_icon": self.current_mode.icon,
                 "tool_calls": [],
                 "thinking": [],
                 "route_method": "special_command",
@@ -1212,8 +1735,8 @@ Use /mode fast|deep|search to switch"""}
             }
 
         # DEEP SEARCH: выполнить веб-поиск и напрямую LLM (без pattern routing)
-        print(f"[DEBUG process_with_mode] Checking DEEP_SEARCH: current={self.current_mode}, expected={ExecutionMode.DEEP_SEARCH}")
-        if self.current_mode == ExecutionMode.DEEP_SEARCH:
+        print(f"[DEBUG process_with_mode] Checking DEEP_SEARCH: current={self.current_mode}, expected={ExecutionMode.SEARCH}")
+        if self.current_mode == ExecutionMode.SEARCH:
             search_result = self.web_search(clean_input)
 
             # Форматировать результаты поиска
@@ -1237,8 +1760,8 @@ Summarize key findings in 3-5 bullet points. Include URLs."""
                 return {
                     "success": True,
                     "response": llm_response or "No analysis available",
-                    "mode": self.current_mode,
-                    "mode_icon": ExecutionMode.get_icon(self.current_mode),
+                    "mode": self.current_mode.value,
+                    "mode_icon": self.current_mode.icon,
                     "tool_calls": [],
                     "thinking": [],
                     "route_method": "deep_search",
@@ -1250,14 +1773,18 @@ Summarize key findings in 3-5 bullet points. Include URLs."""
                 return {
                     "success": False,
                     "response": f"Web search failed: {search_result.get('error', 'No results')}",
-                    "mode": self.current_mode,
-                    "mode_icon": ExecutionMode.get_icon(self.current_mode),
+                    "mode": self.current_mode.value,
+                    "mode_icon": self.current_mode.icon,
                     "tool_calls": [],
                     "thinking": [],
                     "route_method": "deep_search",
                     "iterations": 0,
                     "plan_mode": self.plan_mode.is_active
                 }
+
+        # SEARCH + DEEP: сначала поиск, потом результаты передаются в Deep режим
+        if self.current_mode == ExecutionMode.SEARCH_DEEP:
+            return self._process_search_deep(clean_input)
 
         # Запустить обработку с timeout
         start_time = time.time()
@@ -1266,8 +1793,8 @@ Summarize key findings in 3-5 bullet points. Include URLs."""
             result = self.process(clean_input)
 
             # Добавить информацию о режиме
-            result["mode"] = self.current_mode
-            result["mode_icon"] = ExecutionMode.get_icon(self.current_mode)
+            result["mode"] = self.current_mode.value
+            result["mode_icon"] = self.current_mode.icon
 
             return result
 
@@ -1285,20 +1812,23 @@ Summarize key findings in 3-5 bullet points. Include URLs."""
                     return {
                         "success": False,
                         "error": f"Timeout after {elapsed:.1f}s. Max escalation reached.",
-                        "mode": self.current_mode
+                        "mode": self.current_mode.value
                     }
             else:
                 return {
                     "success": False,
                     "error": f"Timeout after {elapsed:.1f}s",
-                    "mode": self.current_mode
+                    "mode": self.current_mode.value
                 }
 
     def get_mode_status(self) -> Dict[str, Any]:
         """Получить текущий статус режима"""
         return {
-            "current_mode": self.current_mode,
-            "icon": ExecutionMode.get_icon(self.current_mode),
+            "current_mode": self.current_mode.value,
+            "icon": self.current_mode.icon,
+            "label": self.current_mode.label,
+            "is_deep": self.current_mode.is_deep,
+            "is_search": self.current_mode.is_search,
             "deep_mode": self.config.deep_mode,
             "auto_escalation": self.config.auto_escalation,
             "mode_history": self.mode_history[-5:],  # Last 5 switches
@@ -1307,11 +1837,22 @@ Summarize key findings in 3-5 bullet points. Include URLs."""
         }
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get agent statistics"""
+        """Get agent statistics including timeout metrics"""
+        # Get timeout stats from LLM client
+        timeout_stats = self.llm_client.get_stats() if hasattr(self, 'llm_client') else {}
+
         return {
             **self.stats,
             "model": self.config.model,
             "deep_mode": self.config.deep_mode,
             "plan_mode_active": self.plan_mode.is_active,
-            "conversation_length": len(self.conversation_history)
+            "conversation_length": len(self.conversation_history),
+            # Phase 1: Timeout stats
+            "timeout_stats": timeout_stats,
+            "timeout_config": {
+                "ttft": self.timeout_config.ttft_timeout if hasattr(self, 'timeout_config') else None,
+                "idle": self.timeout_config.idle_timeout if hasattr(self, 'timeout_config') else None,
+                "max": self.timeout_config.absolute_max if hasattr(self, 'timeout_config') else None
+            },
+            "user_priority": self.user_prefs.priority if hasattr(self, 'user_prefs') else None
         }
