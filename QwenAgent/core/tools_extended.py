@@ -832,10 +832,17 @@ def execute_tool(tool_name: str, **kwargs) -> Dict[str, Any]:
         return {"success": False, "error": f"Tool execution failed: {str(e)}"}
 
 
-def get_tools_description() -> str:
-    """Get description of all tools for LLM context"""
+def get_tools_description(exclude: list = None) -> str:
+    """Get description of all tools for LLM context
+
+    Args:
+        exclude: List of tool names to exclude (e.g., ['web_search', 'web_search_searxng'])
+    """
+    exclude = exclude or []
     lines = ["Available tools:"]
     for name, info in EXTENDED_TOOL_REGISTRY.items():
+        if name in exclude:
+            continue
         params = ", ".join(info["params"])
         lines.append(f"  - {name}({params}): {info['description']}")
     return "\n".join(lines)

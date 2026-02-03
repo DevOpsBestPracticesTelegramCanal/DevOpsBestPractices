@@ -12,12 +12,280 @@
     <link rel="icon" type="image/png" href="/static/icon-192.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <link rel="stylesheet" href="/static/css/qwencode.css">
+    <link rel="stylesheet" href="/static/css/qwencode.css?v=3.1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
-        /* Minimal overrides - main styles in /static/css/qwencode.css */
+        /* ========== GLASSMORPHISM CRITICAL STYLES ========== */
+        /* These must be inline to ensure they override any cached styles */
 
-        /* SearchDeep mode selector */
+        .header {
+            background: rgba(22, 27, 34, 0.75) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+        }
+
+        .logo-icon {
+            background: linear-gradient(135deg, #a371f7 0%, #58a6ff 100%) !important;
+            box-shadow: 0 0 20px rgba(163, 113, 247, 0.4) !important;
+            animation: logo-pulse 3s ease-in-out infinite !important;
+        }
+
+        @keyframes logo-pulse {
+            0%, 100% { box-shadow: 0 2px 12px rgba(163, 113, 247, 0.4); transform: scale(1); }
+            50% { box-shadow: 0 4px 20px rgba(163, 113, 247, 0.6); transform: scale(1.02); }
+        }
+
+        .mode-selector {
+            background: rgba(33, 38, 45, 0.6) !important;
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 24px !important;
+            padding: 4px !important;
+        }
+
+        .mode-btn.active.fast {
+            background: linear-gradient(135deg, #3fb950 0%, #39c5cf 100%) !important;
+            box-shadow: 0 0 20px rgba(63, 185, 80, 0.3) !important;
+        }
+        .mode-btn.active.deep3 {
+            background: linear-gradient(135deg, #39c5cf 0%, #58a6ff 100%) !important;
+            box-shadow: 0 0 20px rgba(57, 197, 207, 0.3) !important;
+        }
+        .mode-btn.active.deep6, .mode-btn.active.deep {
+            background: linear-gradient(135deg, #a371f7 0%, #58a6ff 100%) !important;
+            box-shadow: 0 0 20px rgba(163, 113, 247, 0.3) !important;
+        }
+        .mode-btn.active.search {
+            background: linear-gradient(135deg, #58a6ff 0%, #a371f7 100%) !important;
+            box-shadow: 0 0 20px rgba(88, 166, 255, 0.3) !important;
+        }
+        .mode-btn.active.searchdeep {
+            background: linear-gradient(135deg, #d29922 0%, #f78166 100%) !important;
+            box-shadow: 0 0 20px rgba(247, 129, 102, 0.3) !important;
+        }
+
+        .input-area {
+            background: rgba(22, 27, 34, 0.75) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        .input-wrapper {
+            background: #0d1117 !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 14px !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: #a371f7 !important;
+            box-shadow: 0 0 20px rgba(163, 113, 247, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, #a371f7 0%, #58a6ff 100%) !important;
+            border-radius: 10px !important;
+            box-shadow: 0 0 20px rgba(163, 113, 247, 0.3) !important;
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .send-btn:hover {
+            transform: translateY(-2px) scale(1.02) !important;
+            box-shadow: 0 8px 24px rgba(163, 113, 247, 0.4) !important;
+        }
+
+        .message-assistant {
+            background: rgba(22, 27, 34, 0.75) !important;
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 14px !important;
+            padding: 16px 20px !important;
+        }
+
+        .tool-call {
+            background: rgba(22, 27, 34, 0.75) !important;
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-left: 3px solid #f78166 !important;
+            border-radius: 0 12px 12px 0 !important;
+        }
+
+        .status-indicator {
+            background: rgba(33, 38, 45, 0.6) !important;
+            backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 20px !important;
+        }
+
+        .model-badge {
+            background: rgba(33, 38, 45, 0.6) !important;
+            backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 20px !important;
+        }
+
+        .terminal-container {
+            background: linear-gradient(180deg, #0d1117 0%, #080b0f 100%) !important;
+        }
+
+        /* ========== END GLASSMORPHISM ========== */
+
+        /* ========== AUTO MODE INDICATOR ========== */
+        .auto-mode-indicator {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .auto-mode-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: rgba(33, 38, 45, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            cursor: default;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .auto-mode-badge:hover {
+            background: rgba(33, 38, 45, 0.8);
+            border-color: rgba(163, 113, 247, 0.3);
+        }
+
+        .auto-mode-icon {
+            font-size: 14px;
+            animation: mode-icon-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes mode-icon-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .auto-mode-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            background: linear-gradient(135deg, #a371f7 0%, #58a6ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .auto-mode-tooltip {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            width: 280px;
+            background: rgba(22, 27, 34, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 16px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s ease;
+            z-index: 1000;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+        }
+
+        .auto-mode-indicator:hover .auto-mode-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .auto-mode-tooltip .tooltip-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .auto-mode-tooltip .tooltip-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .mode-escalation-chain {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px;
+            background: rgba(163, 113, 247, 0.1);
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .escalation-step {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .escalation-arrow {
+            color: var(--text-muted);
+            font-size: 10px;
+        }
+
+        .tooltip-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 10px 0;
+        }
+
+        .tooltip-approval {
+            margin-top: 12px;
+            padding: 10px;
+            background: rgba(63, 185, 80, 0.1);
+            border-radius: 8px;
+            border-left: 3px solid #3fb950;
+        }
+
+        .tooltip-approval .tooltip-triggers-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: #3fb950;
+            margin-bottom: 4px;
+        }
+
+        /* Auto mode state colors */
+        .auto-mode-indicator[data-mode="fast"] .auto-mode-badge {
+            border-color: rgba(63, 185, 80, 0.3);
+        }
+        .auto-mode-indicator[data-mode="deep"] .auto-mode-badge {
+            border-color: rgba(163, 113, 247, 0.3);
+        }
+        .auto-mode-indicator[data-mode="search"] .auto-mode-badge {
+            border-color: rgba(88, 166, 255, 0.3);
+        }
+        .auto-mode-indicator[data-mode="processing"] .auto-mode-icon {
+            animation: mode-icon-spin 1s linear infinite;
+        }
+
+        @keyframes mode-icon-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* ========== END AUTO MODE INDICATOR ========== */
+
+        /* SearchDeep mode selector (hidden - auto mode now) */
         .searchdeep-select {
             background: var(--bg-secondary);
             color: var(--text-secondary);
@@ -327,7 +595,7 @@
             <div class="logo-icon">Q</div>
             <div>
                 <div class="logo-text">QwenCode</div>
-                <div class="logo-version">v3.0.0 • Frosted Terminal Pro</div>
+                <div class="logo-version">v3.1.0 • Auto Mode Edition</div>
             </div>
         </div>
         <div class="header-controls">
@@ -347,105 +615,33 @@
                     </div>
                 </div>
             </div>
-            <div class="mode-selector">
-                <!-- Fast Mode -->
-                <div class="mode-btn-wrapper">
-                    <button class="mode-btn fast active" id="mode-fast">⚡ Fast</button>
-                    <div class="mode-tooltip">
-                        <div class="tooltip-title">⚡ FAST MODE</div>
-                        <div class="tooltip-desc">Pattern matching для простых задач</div>
-                        <div class="tooltip-list">
-                            <div>• Чтение файлов, поиск</div>
-                            <div>• Простые команды</div>
-                            <div>• Быстрые ответы (~1 сек)</div>
+            <!-- AUTO MODE INDICATOR - No manual selection needed -->
+            <div class="auto-mode-indicator" id="auto-mode-indicator">
+                <div class="auto-mode-badge">
+                    <span class="auto-mode-icon" id="current-mode-icon">⚡</span>
+                    <span class="auto-mode-label" id="current-mode-label">Auto</span>
+                </div>
+                <div class="auto-mode-tooltip">
+                    <div class="tooltip-title">🤖 AUTOMATIC MODE SELECTION</div>
+                    <div class="tooltip-desc">Система сама выбирает оптимальный режим</div>
+                    <div class="tooltip-list">
+                        <div class="mode-escalation-chain">
+                            <span class="escalation-step">⚡ Fast</span>
+                            <span class="escalation-arrow">→</span>
+                            <span class="escalation-step">🧠 Deep</span>
+                            <span class="escalation-arrow">→</span>
+                            <span class="escalation-step">🌐 Search</span>
                         </div>
-                        <div class="tooltip-triggers">
-                            <div class="tooltip-triggers-title">Триггеры:</div>
-                            <div>По умолчанию, [FAST]</div>
-                        </div>
+                        <div class="tooltip-divider"></div>
+                        <div>• Простые задачи → Fast (~1 сек)</div>
+                        <div>• Сложные задачи → Deep (авто-эскалация)</div>
+                        <div>• Нужен интернет → Search (авто)</div>
+                    </div>
+                    <div class="tooltip-approval">
+                        <div class="tooltip-triggers-title">🛡️ Human-in-the-Loop:</div>
+                        <div>Опасные операции требуют подтверждения</div>
                     </div>
                 </div>
-
-                <!-- Deep3 Mode -->
-                <div class="mode-btn-wrapper">
-                    <button class="mode-btn deep3" id="mode-deep3">🔬 Deep3</button>
-                    <div class="mode-tooltip">
-                        <div class="tooltip-title">🔬 DEEP3 MODE</div>
-                        <div class="tooltip-desc">Упрощённый Chain-of-Thought (3 шага)</div>
-                        <div class="tooltip-list">
-                            <div>• Understanding → Approaches → Solution</div>
-                            <div>• Средняя сложность задач</div>
-                            <div>• Время: 10-30 сек</div>
-                        </div>
-                        <div class="tooltip-triggers">
-                            <div class="tooltip-triggers-title">Триггеры:</div>
-                            <div>[DEEP3], --deep3</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Deep6 Mode -->
-                <div class="mode-btn-wrapper">
-                    <button class="mode-btn deep6" id="mode-deep6">🧠 Deep6</button>
-                    <div class="mode-tooltip">
-                        <div class="tooltip-title">🧠 DEEP6 MODE (Minsky)</div>
-                        <div class="tooltip-model">Model: qwen2.5-coder:14b (CoT 6-step)</div>
-                        <div class="tooltip-desc">Полный 6-шаговый анализ по Мински</div>
-                        <div class="tooltip-list">
-                            <div>• Understanding → Challenges → Approaches</div>
-                            <div>• Constraints → Choose → Solution</div>
-                            <div>• Критические/архитектурные задачи</div>
-                            <div>• Время: 30-120 сек</div>
-                        </div>
-                        <div class="tooltip-triggers">
-                            <div class="tooltip-triggers-title">Триггеры:</div>
-                            <div>[DEEP], [DEEP6], --deep</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Search Mode -->
-                <div class="mode-btn-wrapper">
-                    <button class="mode-btn search" id="mode-search">🌐 Search</button>
-                    <div class="mode-tooltip tooltip-left">
-                        <div class="tooltip-title">🌐 SEARCH MODE</div>
-                        <div class="tooltip-model">DuckDuckGo / SearXNG</div>
-                        <div class="tooltip-desc">Быстрый поиск в интернете</div>
-                        <div class="tooltip-list">
-                            <div>• Актуальная информация</div>
-                            <div>• CVE, релизы, документация</div>
-                            <div>• Без глубокого анализа</div>
-                        </div>
-                        <div class="tooltip-triggers">
-                            <div class="tooltip-triggers-title">Триггеры:</div>
-                            <div>[SEARCH], --search</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Search+Deep Mode -->
-                <div class="mode-btn-wrapper">
-                    <button class="mode-btn searchdeep" id="mode-searchdeep">🔍 Search+Deep</button>
-                    <div class="mode-tooltip tooltip-left">
-                        <div class="tooltip-title">🔍 SEARCH+DEEP MODE</div>
-                        <div class="tooltip-model">Search → Deep3/Deep6 Analysis</div>
-                        <div class="tooltip-desc">Поиск + глубокий анализ результатов</div>
-                        <div class="tooltip-list">
-                            <div>• Веб-поиск информации</div>
-                            <div>• Затем CoT-анализ найденного</div>
-                            <div>• Выбор Deep3 или Deep6 справа →</div>
-                        </div>
-                        <div class="tooltip-triggers">
-                            <div class="tooltip-triggers-title">Триггеры:</div>
-                            <div>[SEARCH+DEEP], --searchdeep</div>
-                        </div>
-                    </div>
-                </div>
-
-                <select id="searchdeep-mode" class="searchdeep-select" title="Analysis mode for Search+Deep">
-                    <option value="deep3">→ Deep3</option>
-                    <option value="deep6">→ Deep6</option>
-                </select>
             </div>
             <button class="header-btn" id="install-btn" title="Install as desktop app">Install</button>
             <button class="header-btn" id="fullscreen-btn" title="Toggle fullscreen (F11)">&#x26F6;</button>
@@ -490,12 +686,10 @@
         const modeBannerIcon = document.getElementById('mode-banner-icon');
         const modeBannerText = document.getElementById('mode-banner-text');
 
-        // Mode buttons
-        const modeFast = document.getElementById('mode-fast');
-        const modeDeep3 = document.getElementById('mode-deep3');
-        const modeDeep6 = document.getElementById('mode-deep6');
-        const modeSearch = document.getElementById('mode-search');
-        const modeSearchDeep = document.getElementById('mode-searchdeep');
+        // Auto mode indicator (no manual buttons - automatic selection)
+        const autoModeIndicator = document.getElementById('auto-mode-indicator');
+        const currentModeIcon = document.getElementById('current-mode-icon');
+        const currentModeLabel = document.getElementById('current-mode-label');
 
         // ========== STATE ==========
         let isProcessing = false;
@@ -550,76 +744,66 @@
 
         sendBtn.addEventListener('click', sendMessage);
 
-        // ========== MODE SWITCHING ==========
-        modeFast.addEventListener('click', () => switchMode('fast'));
-        modeDeep3.addEventListener('click', () => switchMode('deep3'));
-        modeDeep6.addEventListener('click', () => switchMode('deep6'));
-        modeSearch.addEventListener('click', () => switchMode('search'));
-        modeSearchDeep.addEventListener('click', () => switchMode('searchdeep'));
+        // ========== AUTO MODE SYSTEM ==========
+        // Mode is determined automatically - no manual switching needed
 
-        function switchMode(mode) {
-            currentMode = mode;
+        const MODE_CONFIG = {
+            fast:   { icon: '⚡', label: 'Auto', color: 'rgba(63, 185, 80, 0.3)' },
+            deep3:  { icon: '🔬', label: 'Deep3', color: 'rgba(57, 197, 207, 0.3)' },
+            deep6:  { icon: '🧠', label: 'Deep6', color: 'rgba(163, 113, 247, 0.3)' },
+            search: { icon: '🌐', label: 'Search', color: 'rgba(88, 166, 255, 0.3)' },
+            processing: { icon: '⏳', label: 'Thinking...', color: 'rgba(247, 129, 102, 0.3)' }
+        };
 
-            // Update buttons
-            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(`mode-${mode}`).classList.add('active');
+        // Update auto mode indicator based on current state
+        function updateAutoModeIndicator(mode) {
+            const config = MODE_CONFIG[mode] || MODE_CONFIG.fast;
+            if (currentModeIcon) currentModeIcon.textContent = config.icon;
+            if (currentModeLabel) currentModeLabel.textContent = config.label;
+            if (autoModeIndicator) autoModeIndicator.setAttribute('data-mode', mode);
 
-            // Update banner and searchdeep select visibility
-            const searchdeepSelect = document.getElementById('searchdeep-mode');
+            // Update banner
             if (mode === 'fast') {
                 modeBanner.classList.remove('active');
-                searchdeepSelect.classList.remove('visible');
             } else {
                 modeBanner.classList.add('active');
                 modeBanner.className = `mode-banner active ${mode}`;
-
-                // Show/hide searchdeep mode selector
-                if (mode === 'searchdeep') {
-                    searchdeepSelect.classList.add('visible');
-                    const selectedDeep = searchdeepSelect.value;
-                    modeBannerIcon.textContent = '🔍';
-                    modeBannerText.textContent = `Search+Deep Mode — Web search + ${selectedDeep === 'deep6' ? 'Deep6 (6-step)' : 'Deep3 (3-step)'} analysis`;
-                } else {
-                    searchdeepSelect.classList.remove('visible');
-                }
-
                 if (mode === 'deep3') {
-                    modeBannerIcon.textContent = '🧠';
-                    modeBannerText.textContent = 'Deep3 Mode — 3-step reasoning (fast deep thinking)';
+                    modeBannerIcon.textContent = '🔬';
+                    modeBannerText.textContent = 'Auto: Deep3 Mode — 3-step reasoning';
                 } else if (mode === 'deep6') {
                     modeBannerIcon.textContent = '🧠';
-                    modeBannerText.textContent = 'Deep6 Mode — 6-step Minsky Chain-of-Thought';
+                    modeBannerText.textContent = 'Auto: Deep6 Mode — 6-step Minsky CoT';
                 } else if (mode === 'search') {
                     modeBannerIcon.textContent = '🌐';
-                    modeBannerText.textContent = 'Search Mode — Fast web search (direct results)';
+                    modeBannerText.textContent = 'Auto: Search Mode — Web search active';
+                } else if (mode === 'processing') {
+                    modeBannerIcon.textContent = '⏳';
+                    modeBannerText.textContent = 'Processing — Determining optimal approach...';
                 }
             }
-
-            // Always sync mode with backend
-            const modeMap = { 'fast': 'fast', 'deep3': 'deep3', 'deep6': 'deep6', 'search': 'search', 'searchdeep': 'searchdeep' };
-            fetch('/api/mode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: modeMap[mode] || 'fast' })
-            }).catch(() => {});
         }
 
-        // ========== SEARCHDEEP MODE SELECT ==========
-        document.getElementById('searchdeep-mode').addEventListener('change', function() {
-            const deepMode = this.value;
-            // Sync with backend
-            fetch('/api/searchdeep/mode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: deepMode })
-            }).then(res => res.json()).then(data => {
-                if (data.success) {
-                    // Update banner text
-                    const modeBannerText = document.getElementById('mode-banner-text');
-                    modeBannerText.textContent = `Search+Deep Mode — Web search + ${deepMode === 'deep6' ? 'Deep6 (6-step)' : 'Deep3 (3-step)'} analysis`;
-                }
-            }).catch(() => {});
-        });
+        // Auto-detect mode from query (for display purposes - backend makes final decision)
+        function detectModeFromQuery(query) {
+            const q = query.toLowerCase().trim();
+
+            // Explicit prefixes still work for power users
+            if (q.startsWith('[deep6]') || q.startsWith('--deep')) return 'deep6';
+            if (q.startsWith('[deep3]')) return 'deep3';
+            if (q.startsWith('[search]') || q.startsWith('/search')) return 'search';
+
+            // Keywords that suggest search
+            const searchKeywords = ['cve', 'latest', 'новости', 'update', 'version', 'release', 'documentation', 'docs'];
+            if (searchKeywords.some(kw => q.includes(kw))) return 'search';
+
+            // Keywords that suggest deep thinking
+            const deepKeywords = ['refactor', 'architect', 'design', 'implement', 'critical', 'bug', 'fix', 'analyze'];
+            if (deepKeywords.some(kw => q.includes(kw))) return 'deep3';
+
+            // Default: fast mode (backend will escalate if needed)
+            return 'fast';
+        }
 
         // ========== UPDATE LOADING ==========
         function updateLoading(id, text) {
@@ -644,20 +828,17 @@
             // Create AbortController for this request
             abortController = new AbortController();
 
-            // Add mode prefix if needed
-            let finalMessage = message;
-            if (currentMode === 'deep3' && !message.toUpperCase().startsWith('[DEEP3]')) {
-                finalMessage = `[DEEP3] ${message}`;
-            } else if (currentMode === 'deep6' && !message.toUpperCase().startsWith('[DEEP6]')) {
-                finalMessage = `[DEEP6] ${message}`;
-            } else if (currentMode === 'search' && !message.startsWith('/search ')) {
-                finalMessage = `/search ${message}`;
-            } else if (currentMode === 'searchdeep' && !message.toUpperCase().startsWith('[SEARCH+DEEP]')) {
-                finalMessage = `[SEARCH+DEEP] ${message}`;
-            }
+            // AUTO MODE: Detect mode from query for UI indication
+            // Backend makes the final decision - frontend just shows estimated mode
+            const estimatedMode = detectModeFromQuery(message);
+            updateAutoModeIndicator('processing');
+            currentMode = estimatedMode;
+
+            // No prefix injection - backend auto-selects mode based on query complexity
+            const finalMessage = message;
 
             addMessage('user', message);
-            const loadingId = showLoading('Processing...');
+            const loadingId = showLoading('Determining approach...');
 
             let stepCount = 0;
             let totalSteps = 0;
@@ -726,8 +907,29 @@
                                 }
                                 break;
 
+                            case 'mode_change':
+                                // Auto mode escalation notification
+                                const newMode = event.mode || 'fast';
+                                currentMode = newMode;
+                                updateAutoModeIndicator(newMode);
+                                updateLoading(loadingId, event.message || `Switched to ${newMode} mode`);
+                                break;
+
                             case 'response':
                                 lastRouteMethod = event.route_method || '';
+
+                                // Update auto-mode indicator based on route method
+                                if (lastRouteMethod === 'deep_search' || lastRouteMethod === 'web_search') {
+                                    currentMode = 'search';
+                                    updateAutoModeIndicator('search');
+                                } else if (lastRouteMethod === 'llm' || lastRouteMethod === 'deep') {
+                                    currentMode = 'deep6';
+                                    updateAutoModeIndicator('deep6');
+                                } else if (lastRouteMethod === 'pattern' || lastRouteMethod === 'fast') {
+                                    currentMode = 'fast';
+                                    updateAutoModeIndicator('fast');
+                                }
+
                                 hideLoading(loadingId);
                                 if (event.text) {
                                     // Show response for: no tools, llm, deep_search, pattern+llm_analysis
@@ -796,6 +998,9 @@
             sendBtn.disabled = false;
             stopBtn.classList.remove('visible');
             abortController = null;
+
+            // Reset auto-mode indicator to show detected mode (or fast as default)
+            updateAutoModeIndicator(currentMode || 'fast');
             input.focus();
         }
 

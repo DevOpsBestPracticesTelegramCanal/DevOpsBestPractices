@@ -13,8 +13,12 @@ import requests
 from datetime import datetime
 
 from core.qwencode_agent import QwenCodeAgent, QwenCodeConfig
+from core.execution_mode import ExecutionMode, normalize_mode, ESCALATION_CHAIN
+from core.exit_handler import register_exit_handler, set_config, ExitHandlerConfig
 
 app = Flask(__name__, template_folder='templates')
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 CORS(app)
 
 # Configuration
@@ -162,6 +166,77 @@ def chat():
         }), 500
 
 
+def detect_language(text: str) -> str:
+    """Detect if text is Russian or English"""
+    russian_chars = set('абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ')
+    russian_count = sum(1 for c in text if c in russian_chars)
+    # If more than 10% Russian chars, consider it Russian
+    if len(text) > 0 and russian_count / len(text) > 0.1:
+        return 'ru'
+    return 'en'
+
+
+@app.route('/api/chat/stream', methods=['POST'])
+def chat_stream():
+    """Process chat message with SSE streaming and mode detection"""
+    from flask import Response
+    import json as json_module
+
+    data = request.json
+    message = data.get('message', '')
+
+    if not message:
+        return jsonify({"error": "No message provided"}), 400
+
+    # Detect and switch mode from prefix (e.g., [DEEP6], [DEEP3], [SEARCH])
+    requested_mode = agent.detect_mode_from_input(message)
+    if requested_mode != agent.current_mode:
+        agent.switch_mode(requested_mode, reason="auto")
+        print(f"[STREAM] Mode switched to: {agent.current_mode.value}")
+
+    # Strip mode prefix from message
+    clean_message = agent.strip_mode_prefix(message)
+
+    # Detect language for response
+    lang = detect_language(clean_message)
+    lang_instruction = ""
+    if lang == 'ru':
+        lang_instruction = "\n\nОТВЕЧАЙ НА РУССКОМ ЯЗЫКЕ."
+    else:
+        lang_instruction = "\n\nRESPOND IN ENGLISH."
+
+    # Append language instruction to message
+    message_with_lang = clean_message + lang_instruction
+
+    print(f"[STREAM] Received: {clean_message[:100]}...")
+    print(f"[STREAM] Mode: {agent.current_mode.value}, Lang: {lang}")
+
+    def generate():
+        try:
+            # Use process_stream for SSE events
+            for event in agent.process_stream(message_with_lang):
+                event_type = event.get('event', 'message')
+                event_data = json_module.dumps(event, ensure_ascii=False)
+                yield f"event: {event_type}\ndata: {event_data}\n\n"
+
+        except Exception as e:
+            print(f"[STREAM] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            error_event = json_module.dumps({"event": "error", "text": str(e)})
+            yield f"event: error\ndata: {error_event}\n\n"
+
+    return Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        }
+    )
+
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """Get agent statistics"""
@@ -171,29 +246,41 @@ def get_stats():
 @app.route('/api/mode', methods=['GET', 'POST'])
 def mode_endpoint():
     """Get or switch execution mode"""
-    from core.qwencode_agent import ExecutionMode
-
     if request.method == 'GET':
         return jsonify(agent.get_mode_status())
 
     elif request.method == 'POST':
         data = request.json
-        new_mode = data.get('mode', '').lower()
+        raw_mode = data.get('mode', '').lower()
 
-        mode_map = {
-            'fast': ExecutionMode.FAST,
-            'deep': ExecutionMode.DEEP,
-            'search': ExecutionMode.DEEP_SEARCH,
-            'deep_search': ExecutionMode.DEEP_SEARCH
-        }
-
-        if new_mode not in mode_map:
+        try:
+            # normalize_mode handles legacy names (deep→deep6, searchdeep→search_deep)
+            mode = normalize_mode(raw_mode)
+            result = agent.switch_mode(mode, reason="api")
+            return jsonify(result)
+        except ValueError:
             return jsonify({
                 "success": False,
-                "error": f"Invalid mode: {new_mode}. Use: fast, deep, search"
+                "error": f"Invalid mode: {raw_mode}. Use: fast, deep3, deep6, search, search_deep"
             }), 400
 
-        result = agent.switch_mode(mode_map[new_mode], reason="api")
+
+@app.route('/api/searchdeep/mode', methods=['GET', 'POST'])
+def searchdeep_mode():
+    """Get or set the deep analysis mode for Search+Deep"""
+    if request.method == 'GET':
+        mode = agent.search_deep_analysis_mode
+        mode_name = 'deep3' if mode == ExecutionMode.DEEP3 else 'deep6'
+        return jsonify({
+            "success": True,
+            "mode": mode_name,
+            "description": "Deep3 (3-step)" if mode_name == 'deep3' else "Deep6 (6-step Minsky)"
+        })
+
+    elif request.method == 'POST':
+        data = request.json
+        deep_mode = data.get('mode', 'deep3')
+        result = agent.set_search_deep_mode(deep_mode)
         return jsonify(result)
 
 
@@ -370,11 +457,26 @@ def main():
     print()
     print("  MODE SYSTEM:")
     print("  [FAST]   Quick queries (default)")
-    print("  [DEEP]   CoT reasoning for complex tasks")
+    print("  [DEEP3]  Lightweight CoT (3 steps)")
+    print("  [DEEP6]  Full CoT reasoning (6 steps)")
     print("  [SEARCH] Web search integration")
     print()
-    print("  Auto-escalation: FAST -> DEEP -> SEARCH")
+    print("  Auto-escalation: FAST -> DEEP3 -> SEARCH + DEEP6")
     print("=" * 60)
+
+    # Регистрация exit handler
+    # При выходе из CLI: проверка сервера + прогрев модели
+    exit_config = ExitHandlerConfig(
+        server_url=f"http://localhost:{port}",
+        ollama_url=config.ollama_url,
+        model=config.model,
+        server_script="qwencode_server.py",
+        auto_start_server=True,
+        auto_warmup=True,
+        verbose=True
+    )
+    set_config(exit_config)
+    register_exit_handler()
 
     # Прогрев модели перед стартом
     warmup_success = warmup_model()
@@ -401,6 +503,9 @@ def main():
     print("  Префиксы в запросах:")
     print("    [DEEP] query       - Выполнить в DEEP mode")
     print("    [SEARCH] query     - Выполнить веб-поиск")
+    print()
+    print("  EXIT HANDLER:")
+    print("    При выходе (Ctrl+C) - автозапуск сервера + прогрев модели")
     print()
 
     app.run(host='0.0.0.0', port=port, debug=False)

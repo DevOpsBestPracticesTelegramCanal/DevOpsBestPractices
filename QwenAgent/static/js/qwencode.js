@@ -19,7 +19,8 @@ const modeBannerText = document.getElementById('mode-banner-text');
 
 // Mode buttons
 const modeFast = document.getElementById('mode-fast');
-const modeDeep = document.getElementById('mode-deep');
+const modeDeep3 = document.getElementById('mode-deep3');
+const modeDeep6 = document.getElementById('mode-deep6');
 const modeSearch = document.getElementById('mode-search');
 const modeAiSearch = document.getElementById('mode-aisearch');
 
@@ -78,7 +79,8 @@ sendBtn.addEventListener('click', sendMessage);
 
 // ========== MODE SWITCHING ==========
 modeFast.addEventListener('click', () => switchMode('fast'));
-modeDeep.addEventListener('click', () => switchMode('deep'));
+modeDeep3.addEventListener('click', () => switchMode('deep3'));
+modeDeep6.addEventListener('click', () => switchMode('deep6'));
 modeSearch.addEventListener('click', () => switchMode('search'));
 modeAiSearch.addEventListener('click', () => switchMode('aisearch'));
 
@@ -96,9 +98,12 @@ function switchMode(mode) {
         modeBanner.classList.add('active');
         modeBanner.className = `mode-banner active ${mode}`;
 
-        if (mode === 'deep') {
+        if (mode === 'deep3') {
+            modeBannerIcon.textContent = '🔬';
+            modeBannerText.textContent = 'Deep3 Mode — 3-step lightweight CoT reasoning';
+        } else if (mode === 'deep6') {
             modeBannerIcon.textContent = '🧠';
-            modeBannerText.textContent = 'Deep Mode — Chain-of-Thought reasoning enabled';
+            modeBannerText.textContent = 'Deep6 Mode — Full 6-step Chain-of-Thought (Minsky)';
         } else if (mode === 'search') {
             modeBannerIcon.textContent = '🌐';
             modeBannerText.textContent = 'Search Mode — Fast web search (direct results, ~3 sec)';
@@ -109,7 +114,7 @@ function switchMode(mode) {
     }
 
     // Always sync mode with backend
-    const modeMap = { 'fast': 'fast', 'deep': 'deep', 'search': 'fast', 'aisearch': 'search' };
+    const modeMap = { 'fast': 'fast', 'deep3': 'deep3', 'deep6': 'deep', 'search': 'fast', 'aisearch': 'search' };
     fetch('/api/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,7 +147,9 @@ async function sendMessage() {
 
     // Add mode prefix if needed
     let finalMessage = message;
-    if (currentMode === 'deep' && !message.toUpperCase().startsWith('[DEEP]')) {
+    if (currentMode === 'deep3' && !message.toUpperCase().startsWith('[DEEP3]')) {
+        finalMessage = `[DEEP3] ${message}`;
+    } else if (currentMode === 'deep6' && !message.toUpperCase().startsWith('[DEEP]')) {
         finalMessage = `[DEEP] ${message}`;
     } else if (currentMode === 'search' && !message.startsWith('/search ')) {
         finalMessage = `/search ${message}`;
