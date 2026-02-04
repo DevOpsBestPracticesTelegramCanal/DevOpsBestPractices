@@ -18,7 +18,9 @@ import re
 import json
 
 from .ducs_classifier import DUCSClassifier, classify_task
-from .router import PatternRouter, HybridRouter, RouteResult
+from .pattern_router import PatternRouter  # Legacy fallback
+from .bilingual_context_router import BilingualContextRouter  # NEW: Week 1.5 integration
+from .router import HybridRouter, RouteResult
 from .cot_engine import CoTEngine
 from .tools_extended import execute_tool, EXTENDED_TOOL_REGISTRY
 
@@ -60,9 +62,24 @@ class Orchestrator:
     ЦЕЛЬ: Максимум без LLM, LLM только когда необходимо!
     """
 
-    def __init__(self, llm_client=None):
+    def __init__(self, llm_client=None, use_bilingual_router=True):
+        """
+        Args:
+            llm_client: LLM client для Tier 2+
+            use_bilingual_router: Использовать BilingualContextRouter (Week 1.5)
+                                  True = новый роутер (RU+EN+Context+Tier1.5)
+                                  False = старый PatternRouter (обратная совместимость)
+        """
         # Компоненты
-        self.pattern_router = PatternRouter()
+        if use_bilingual_router:
+            # Week 1.5: Bilingual Context Router with Tier 1.5
+            self.bilingual_router = BilingualContextRouter(enable_tier1_5=True)
+            self.pattern_router = None  # Legacy router disabled
+        else:
+            # Legacy: PatternRouter only
+            self.pattern_router = PatternRouter()
+            self.bilingual_router = None
+
         self.hybrid_router = HybridRouter()
         self.ducs = DUCSClassifier()
         self.cot_engine = CoTEngine()
@@ -71,13 +88,15 @@ class Orchestrator:
         # Статистика
         self.stats = {
             "total_requests": 0,
-            "tier0_pattern": 0,
-            "tier1_ducs": 0,
+            "tier0_pattern": 0,      # Regex (NO-LLM)
+            "tier1_ducs": 0,         # DUCS (NO-LLM)
+            "tier1_5_llm": 0,        # NEW: Lightweight LLM classification
             "tier2_simple_llm": 0,
             "tier3_cot": 0,
             "tier4_autonomous": 0,
             "self_corrections": 0,
-            "no_llm_rate": 0.0
+            "no_llm_rate": 0.0,
+            "light_llm_rate": 0.0    # NEW: Tier 1.5 rate
         }
 
         # DUCS Templates - шаблоны ответов без LLM
@@ -134,25 +153,69 @@ class Orchestrator:
 
     def _try_tier0_pattern(self, user_input: str) -> Optional[ProcessingResult]:
         """
-        Tier 0: Прямое сопоставление паттернов (NO-LLM)
-        Для простых команд: ls, read, git status и т.д.
+        Tier 0/1/1.5: Routing через BilingualContextRouter
+
+        UPDATED 2026-02-04 (Week 1.5):
+        - Использует BilingualContextRouter если доступен
+        - Поддержка Tier 0 (Regex), Tier 1 (NLP), Tier 1.5 (LLM Classification)
+        - Fallback на PatternRouter для обратной совместимости
         """
-        route = self.pattern_router.route(user_input)
+        # Week 1.5: Bilingual Context Router
+        if self.bilingual_router:
+            route = self.bilingual_router.route(user_input)
 
-        if route.confidence >= 0.85 and route.tool:
-            # Выполняем инструмент напрямую
-            tool_result = execute_tool(route.tool, **route.params)
+            if route.get("tier") == 4:
+                # Escalation to DEEP Mode - не обрабатываем здесь
+                return None
 
-            return ProcessingResult(
-                tier=ProcessingTier.TIER0_PATTERN,
-                response=self._format_tool_output(route.tool, tool_result),
-                tool_calls=[{
-                    "tool": route.tool,
-                    "params": route.params,
-                    "result": tool_result
-                }],
-                confidence=route.confidence
-            )
+            tool_name = route.get("tool")
+            args = route.get("args", "")
+            tier = route.get("tier")
+            confidence = route.get("confidence", 1.0)
+
+            if tool_name:
+                # Конвертируем args в params для execute_tool()
+                params = {"args": args} if args else {}
+
+                # Выполняем инструмент
+                tool_result = execute_tool(tool_name, **params)
+
+                # Обновляем статистику по tier
+                if tier == 1.5:
+                    self.stats["tier1_5_llm"] += 1
+
+                return ProcessingResult(
+                    tier=ProcessingTier.TIER0_PATTERN,  # Все NO-LLM/Light-LLM как Tier 0
+                    response=self._format_tool_output(tool_name, tool_result),
+                    tool_calls=[{
+                        "tool": tool_name,
+                        "params": params,
+                        "result": tool_result,
+                        "router_tier": tier  # Сохраняем оригинальный tier
+                    }],
+                    confidence=confidence
+                )
+
+        # Legacy: PatternRouter fallback
+        elif self.pattern_router:
+            route = self.pattern_router.match(user_input)
+
+            if route:
+                tool_name = route.get("tool")
+                params = route.get("params", {})
+
+                tool_result = execute_tool(tool_name, **params)
+
+                return ProcessingResult(
+                    tier=ProcessingTier.TIER0_PATTERN,
+                    response=self._format_tool_output(tool_name, tool_result),
+                    tool_calls=[{
+                        "tool": tool_name,
+                        "params": params,
+                        "result": tool_result
+                    }],
+                    confidence=1.0
+                )
 
         return None
 
@@ -424,15 +487,35 @@ Provide corrected response:
         return int((datetime.now() - start).total_seconds() * 1000)
 
     def _update_no_llm_rate(self):
-        """Update NO-LLM rate statistic"""
+        """Update NO-LLM and Light LLM rate statistics
+
+        UPDATED 2026-02-04 (Week 1.5):
+        - NO-LLM: Tier 0 + Tier 1 (pure pattern matching, no AI)
+        - Light LLM: Tier 1.5 (lightweight LLM classification, fast)
+        - Heavy LLM: Tier 2-4 (full LLM processing, slow)
+        """
         total = self.stats["total_requests"]
         if total > 0:
+            # NO-LLM: Tier 0 (pattern) + Tier 1 (DUCS)
             no_llm = self.stats["tier0_pattern"] + self.stats["tier1_ducs"]
             self.stats["no_llm_rate"] = round(no_llm / total * 100, 1)
 
+            # Light LLM: Tier 1.5
+            self.stats["light_llm_rate"] = round(self.stats["tier1_5_llm"] / total * 100, 1)
+
     def get_stats(self) -> Dict[str, Any]:
-        """Get orchestrator statistics"""
-        return {
+        """Get orchestrator statistics
+
+        UPDATED 2026-02-04 (Week 1.5):
+        - Includes BilingualContextRouter stats if enabled
+        """
+        stats_dict = {
             **self.stats,
             "ducs_stats": self.ducs.get_stats()
         }
+
+        # Add BilingualContextRouter stats if enabled
+        if self.bilingual_router:
+            stats_dict["bilingual_router_stats"] = self.bilingual_router.get_stats()
+
+        return stats_dict
