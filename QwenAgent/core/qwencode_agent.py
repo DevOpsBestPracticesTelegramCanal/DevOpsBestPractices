@@ -1748,6 +1748,8 @@ Use /mode fast|deep3|deep|search to switch"""}
             r"^how did .* (happen|start|begin|end)",
             r"news about|news on|latest news",
             r"tell me about (?!.*code|.*file|.*function)",
+            r"^list of |^examples of |^main |^basic |^common ",
+            r"commands\?|commands$",  # "bash commands?" or "основные команды"
 
             # Общие вопросы о персонах/событиях (RU)
             r"^кто такой |^кто такая |^кто такие |^кто это ",
@@ -1756,6 +1758,10 @@ Use /mode fast|deep3|deep|search to switch"""}
             r"^расскажи о |^расскажи про ",
             r"новости о |новости про |последние новости",
             r"что случилось|что произошло",
+            r"^основные |^базовые |^главные |^популярные ",
+            r"команды\?|команды$",  # "основные команды bash?"
+            r"^как работает |^как использовать |^как настроить ",
+            r"^список |^примеры ",
 
             # Известные персоны (частые запросы)
             r"трамп|trump|путин|putin|байден|biden|маск|musk|цукерберг|zuckerberg",
