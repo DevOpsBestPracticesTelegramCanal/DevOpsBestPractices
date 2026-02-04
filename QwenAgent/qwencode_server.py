@@ -5,6 +5,22 @@ Terminal-style web interface
 
 import os
 import sys
+
+# === SYSTEM FIXES (Windows compatibility) ===
+# Fix 1: Bypass system proxy for localhost requests
+os.environ['NO_PROXY'] = 'localhost,127.0.0.1,::1'
+os.environ['no_proxy'] = 'localhost,127.0.0.1,::1'
+
+# Fix 2: Force UTF-8 encoding on Windows to prevent UnicodeEncodeError
+if sys.platform == "win32":
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass  # Ignore if reconfigure fails
+
 import json
 import time
 from flask import Flask, render_template, request, jsonify, Response
@@ -24,7 +40,7 @@ CORS(app)
 # Configuration
 config = QwenCodeConfig(
     ollama_url=os.environ.get("OLLAMA_URL", "http://localhost:11434"),
-    model=os.environ.get("QWEN_MODEL", "qwen2.5-coder:3b"),  # 3b faster on CPU
+    model=os.environ.get("QWEN_MODEL", "qwen2.5-coder:7b"),  # 7b for better quality
     max_iterations=10,
     deep_mode=False
 )
@@ -120,7 +136,8 @@ def test_multiline_edit():
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """Process chat message with mode support"""
-    data = request.json
+    # Force UTF-8 decoding for Russian text support
+    data = request.get_json(force=True, silent=True) or {}
     message = data.get('message', '')
 
     if not message:
@@ -134,10 +151,16 @@ def chat():
         result = agent.process_with_mode(message)
 
         response_text = result.get('response', '')
-        print(f"[DEBUG] Response length: {len(response_text)}")
-        print(f"[DEBUG] Has real newlines: {'\\n' in response_text}")
-        print(f"[DEBUG] Newline count: {response_text.count(chr(10))}")
-        print(f"[DEBUG] Response preview: {repr(response_text[:300])}...")
+        # Safe debug printing (handles Unicode on Windows)
+        try:
+            print(f"[DEBUG] Response length: {len(response_text)}")
+            print(f"[DEBUG] Has real newlines: {'\\n' in response_text}")
+            print(f"[DEBUG] Newline count: {response_text.count(chr(10))}")
+            # Use ASCII-safe repr for preview
+            preview = response_text[:300].encode('ascii', 'replace').decode('ascii')
+            print(f"[DEBUG] Response preview: {preview}...")
+        except Exception as print_err:
+            print(f"[DEBUG] Response length: {len(response_text)} (preview skipped)")
 
         return jsonify({
             "success": True,
@@ -157,9 +180,13 @@ def chat():
         })
 
     except Exception as e:
-        print(f"[DEBUG] Exception: {e}")
-        import traceback
-        traceback.print_exc()
+        # Safe error printing (handles Unicode on Windows)
+        try:
+            print(f"[DEBUG] Exception: {e}")
+            import traceback
+            traceback.print_exc()
+        except:
+            print(f"[DEBUG] Exception occurred (encoding error in traceback)")
         return jsonify({
             "success": False,
             "error": str(e)
@@ -182,7 +209,8 @@ def chat_stream():
     from flask import Response
     import json as json_module
 
-    data = request.json
+    # Force UTF-8 decoding for Russian text support
+    data = request.get_json(force=True, silent=True) or {}
     message = data.get('message', '')
 
     if not message:
@@ -197,24 +225,28 @@ def chat_stream():
     # Strip mode prefix from message
     clean_message = agent.strip_mode_prefix(message)
 
-    # Detect language for response
-    lang = detect_language(clean_message)
-    lang_instruction = ""
-    if lang == 'ru':
-        lang_instruction = "\n\nОТВЕЧАЙ НА РУССКОМ ЯЗЫКЕ."
-    else:
-        lang_instruction = "\n\nRESPOND IN ENGLISH."
-
-    # Append language instruction to message
-    message_with_lang = clean_message + lang_instruction
-
     print(f"[STREAM] Received: {clean_message[:100]}...")
-    print(f"[STREAM] Mode: {agent.current_mode.value}, Lang: {lang}")
+    print(f"[STREAM] Mode: {agent.current_mode.value}")
+
+    # TEST: Check No-LLM directly before streaming
+    no_llm_test = agent.no_llm_responder.try_respond(clean_message)
+    print(f"[STREAM] No-LLM test: success={no_llm_test.success}, response='{no_llm_test.response}'")
+
+    # If No-LLM works, return immediately without streaming
+    if no_llm_test.success:
+        def generate_no_llm():
+            yield f"event: response\ndata: {json_module.dumps({'event': 'response', 'text': no_llm_test.response, 'route_method': f'no_llm_{no_llm_test.response_type.value}'}, ensure_ascii=False)}\n\n"
+            yield f"event: done\ndata: {json_module.dumps({'event': 'done'})}\n\n"
+        return Response(
+            generate_no_llm(),
+            mimetype='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no'}
+        )
 
     def generate():
         try:
-            # Use process_stream for SSE events
-            for event in agent.process_stream(message_with_lang):
+            # Use process_stream for SSE events (No-LLM already checked above)
+            for event in agent.process_stream(clean_message):
                 event_type = event.get('event', 'message')
                 event_data = json_module.dumps(event, ensure_ascii=False)
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
@@ -375,6 +407,26 @@ def health():
         "ollama": ollama_ok,
         "model": agent.config.model,
         "version": QwenCodeAgent.VERSION
+    })
+
+
+@app.route('/api/debug/no_llm', methods=['POST'])
+def debug_no_llm():
+    """Debug endpoint to test No-LLM responder directly"""
+    data = request.json
+    message = data.get('message', '')
+
+    # Test no_llm_responder directly
+    result = agent.no_llm_responder.try_respond(message)
+
+    return jsonify({
+        "input": message,
+        "success": result.success,
+        "response": result.response,
+        "response_type": str(result.response_type),
+        "confidence": result.confidence,
+        "has_responder": hasattr(agent, 'no_llm_responder'),
+        "responder_type": type(agent.no_llm_responder).__name__
     })
 
 

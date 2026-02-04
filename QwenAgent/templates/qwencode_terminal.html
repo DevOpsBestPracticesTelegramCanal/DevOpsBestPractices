@@ -285,6 +285,30 @@
 
         /* ========== END AUTO MODE INDICATOR ========== */
 
+        /* ========== SEARCH BUTTON ========== */
+        .search-btn {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(56, 139, 253, 0.1)) !important;
+            border: 1px solid rgba(88, 166, 255, 0.3) !important;
+            color: #58a6ff !important;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .search-btn:hover {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.25), rgba(56, 139, 253, 0.2)) !important;
+            border-color: rgba(88, 166, 255, 0.5) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.2);
+        }
+        .search-btn:active {
+            transform: translateY(0);
+        }
+        .search-btn.active {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.3), rgba(56, 139, 253, 0.25)) !important;
+            border-color: #58a6ff !important;
+            box-shadow: 0 0 12px rgba(88, 166, 255, 0.3);
+        }
+        /* ========== END SEARCH BUTTON ========== */
+
         /* SearchDeep mode selector (hidden - auto mode now) */
         .searchdeep-select {
             background: var(--bg-secondary);
@@ -587,6 +611,8 @@
             border-color: rgba(247, 129, 102, 0.25);
             color: var(--accent-orange);
         }
+
+        /* Search is now automatic - CSS removed */
     </style>
 </head>
 <body>
@@ -643,6 +669,10 @@
                     </div>
                 </div>
             </div>
+            <!-- SEARCH BUTTON - Explicit web search mode -->
+            <button class="header-btn search-btn" id="search-btn" title="Web Search Mode (Ctrl+Shift+S)">
+                🌐 Search
+            </button>
             <button class="header-btn" id="install-btn" title="Install as desktop app">Install</button>
             <button class="header-btn" id="fullscreen-btn" title="Toggle fullscreen (F11)">&#x26F6;</button>
         </div>
@@ -834,7 +864,7 @@
             updateAutoModeIndicator('processing');
             currentMode = estimatedMode;
 
-            // No prefix injection - backend auto-selects mode based on query complexity
+            // Search is now automatic - no prefix injection needed
             const finalMessage = message;
 
             addMessage('user', message);
@@ -2423,6 +2453,10 @@
             }
         }
 
+        // ========== SEARCH is now AUTOMATIC ==========
+        // No manual button needed - system auto-detects general questions
+        // and performs web search automatically
+
         // ========== FULLSCREEN API ==========
         const fullscreenBtn = document.getElementById('fullscreen-btn');
 
@@ -2448,6 +2482,59 @@
             if (e.key === 'F11') {
                 e.preventDefault();
                 toggleFullscreen();
+            }
+        });
+
+        // ========== SEARCH BUTTON ==========
+        const searchBtn = document.getElementById('search-btn');
+        let searchModeActive = false;
+
+        searchBtn.addEventListener('click', () => {
+            searchModeActive = !searchModeActive;
+            searchBtn.classList.toggle('active', searchModeActive);
+
+            if (searchModeActive) {
+                // Update mode indicator
+                currentModeIcon.textContent = '🌐';
+                currentModeLabel.textContent = 'Search';
+                autoModeIndicator.setAttribute('data-mode', 'search');
+
+                // Show hint in input
+                input.placeholder = '🌐 Search mode: Enter your search query...';
+
+                // Notify backend
+                fetch('/api/mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'search' })
+                });
+
+                appendMessage('system', '🌐 <strong>Search Mode Activated</strong> — Your query will be searched on the web');
+            } else {
+                // Return to auto mode
+                currentModeIcon.textContent = '⚡';
+                currentModeLabel.textContent = 'Auto';
+                autoModeIndicator.setAttribute('data-mode', 'fast');
+                input.placeholder = 'Type your message... (Ctrl+Enter to send)';
+
+                // Reset to fast mode
+                fetch('/api/mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: 'fast' })
+                });
+
+                appendMessage('system', '⚡ <strong>Auto Mode</strong> — Automatic mode selection restored');
+            }
+
+            input.focus();
+        });
+
+        // Keyboard shortcut: Ctrl+Shift+S for search mode
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+                e.preventDefault();
+                searchBtn.click();
             }
         });
 

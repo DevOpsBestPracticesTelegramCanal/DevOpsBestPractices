@@ -46,6 +46,11 @@ from .predictive_estimator import PredictiveEstimator, PredictionResult, predict
 # Phase 4: Intent-Aware Scheduler
 from .intent_scheduler import IntentScheduler, StreamAnalyzer, SchedulerDecision
 
+# Phase 5: No-LLM Optimization Components
+from .no_llm_responder import NoLLMResponder, NoLLMResponse, ResponseType
+from .solution_cache import SolutionCache
+from .static_analyzer import StaticAnalyzer
+
 
 @dataclass
 class QwenCodeConfig:
@@ -162,6 +167,11 @@ Current working directory: {working_dir}
         # Phase 4: Intent-Aware Scheduler
         self.intent_scheduler = IntentScheduler()
 
+        # Phase 5: No-LLM Optimization Components
+        self.solution_cache = SolutionCache()  # SQLite-based solution cache
+        self.no_llm_responder = NoLLMResponder(solution_cache=self.solution_cache)
+        self.static_analyzer = StaticAnalyzer(use_ruff=True)
+
         # Deep6 Minsky engine (full 6-step CoT with iterative rollback)
         self.deep6_engine = Deep6Minsky(
             fast_model=getattr(config, 'fast_model', None) if config else None,
@@ -199,7 +209,11 @@ Current working directory: {working_dir}
             "prediction_accuracy_sum": 0.0,
             # Phase 4: Intent tracking
             "intent_early_exits": 0,
-            "intent_extensions": 0
+            "intent_extensions": 0,
+            # Phase 5: No-LLM optimization tracking
+            "no_llm_responses": 0,
+            "cache_hits": 0,
+            "static_analysis_fixes": 0
         }
 
         # Mode tracking
@@ -212,6 +226,7 @@ Current working directory: {working_dir}
         Process user input - main entry point
         Returns structured response with tool calls, thinking, etc.
         """
+        print(f"[DEBUG] === process() called === input: {user_input[:50]}...")
         self.stats["total_requests"] += 1
 
         result = {
@@ -229,6 +244,24 @@ Current working directory: {working_dir}
         if special:
             result["response"] = special["response"]
             result["route_method"] = "special_command"
+            return result
+
+        # STEP 0: No-LLM Responder for trivial queries (math, greetings, cached solutions)
+        # Extract error context if present in user input (traceback detection)
+        error_context = self._extract_error_context(user_input)
+        no_llm_result = self.no_llm_responder.try_respond(user_input, context=error_context)
+        if no_llm_result.success:
+            # Track cache hits separately
+            if no_llm_result.response_type == ResponseType.CACHED:
+                self.stats["cache_hits"] += 1
+            self.stats["no_llm_responses"] += 1
+            result["response"] = no_llm_result.response
+            result["route_method"] = f"no_llm_{no_llm_result.response_type.value}"
+            result["no_llm_confidence"] = no_llm_result.confidence
+            if no_llm_result.metadata:
+                result["no_llm_metadata"] = no_llm_result.metadata
+            if self.config.verbose:
+                print(f"[NO-LLM] Responded via {no_llm_result.response_type.value} (conf: {no_llm_result.confidence})")
             return result
 
         # STEP 1: Try pattern routing (NO-LLM)
@@ -272,6 +305,29 @@ Current working directory: {working_dir}
             result["swecas_category"] = swecas_result.get("name", "")
             result["swecas_confidence"] = swecas_result.get("confidence", 0)
         self._current_swecas = swecas_result
+
+        # STEP 1.7.5: Static Analysis (NO-LLM) - for code in pre_read_content
+        static_analysis_context = None
+        if pre_read_content and pre_read_content.strip():
+            try:
+                analysis = self.static_analyzer.analyze(pre_read_content)
+                if analysis.has_errors() or analysis.has_warnings():
+                    static_analysis_context = analysis.get_context_for_llm(pre_read_content) if hasattr(analysis, 'summary') else analysis.summary
+                    result["static_analysis"] = {
+                        "ast_valid": analysis.ast_valid,
+                        "complexity": analysis.complexity,
+                        "undefined_names": analysis.undefined_names[:5],
+                        "lint_errors_count": len(analysis.lint_errors),
+                        "auto_fixes_count": len(analysis.get_high_confidence_fixes())
+                    }
+                    # Try auto-fix for high-confidence issues
+                    high_conf_fixes = analysis.get_high_confidence_fixes(threshold=0.95)
+                    if high_conf_fixes and not analysis.has_errors():
+                        result["static_auto_fixes"] = high_conf_fixes
+                        self.stats["static_analysis_fixes"] += len(high_conf_fixes)
+            except Exception as e:
+                if self.config.verbose:
+                    print(f"[STATIC-ANALYSIS] Error: {e}")
 
         # STEP 1.8: Phase 3 - Predictive timeout estimation
         prediction_context = {
@@ -478,6 +534,14 @@ Task: {user_input}"""
                 accuracy = actual_time / self._current_prediction.timeout
                 self.stats["prediction_accuracy_sum"] += accuracy
 
+        # Phase 5: Save to solution cache if this was an error fix
+        if error_context and error_context.get("error_type") and result.get("response"):
+            try:
+                self._save_to_solution_cache(error_context, result["response"])
+            except Exception as e:
+                if self.config.verbose:
+                    print(f"[CACHE] Failed to save: {e}")
+
         # Store in history
         self.conversation_history.append({
             "role": "user",
@@ -495,12 +559,26 @@ Task: {user_input}"""
         Generator version of process() — yields SSE events during processing.
         Events: status, tool_start, tool_result, thinking, response, done
         """
+        print(f"[DEBUG] === process_stream() called === input: {user_input[:50]}...")
         self.stats["total_requests"] += 1
 
         # Check for special commands
         special = self._handle_special_commands(user_input)
         if special:
             yield {"event": "response", "text": special["response"], "route_method": "special_command"}
+            yield {"event": "done"}
+            return
+
+        # STEP 0: No-LLM Responder for trivial queries (math, greetings, cached solutions)
+        print(f"[DEBUG] process_stream STEP 0: checking no_llm for: '{user_input[:80]}'")
+        error_context = self._extract_error_context(user_input)
+        no_llm_result = self.no_llm_responder.try_respond(user_input, context=error_context)
+        print(f"[DEBUG] process_stream STEP 0: no_llm result success={no_llm_result.success}")
+        if no_llm_result.success:
+            if no_llm_result.response_type == ResponseType.CACHED:
+                self.stats["cache_hits"] += 1
+            self.stats["no_llm_responses"] += 1
+            yield {"event": "response", "text": no_llm_result.response, "route_method": f"no_llm_{no_llm_result.response_type.value}"}
             yield {"event": "done"}
             return
 
@@ -535,6 +613,37 @@ Task: {user_input}"""
         if swecas_result.get("confidence", 0) >= 0.6:
             yield {"event": "status", "text": f"Bug: SWECAS-{swecas_result.get('swecas_code', '?')} ({swecas_result.get('name', '')})"}
         self._current_swecas = swecas_result
+
+        # STEP 1.8: SEARCH MODE — чистый веб-поиск БЕЗ LLM
+        if self.current_mode == ExecutionMode.SEARCH:
+            yield {"event": "status", "text": "🌐 Searching the web..."}
+            search_result = self.web_search(user_input)
+
+            if search_result["success"] and search_result["results"]:
+                # Форматируем результаты без LLM
+                response_lines = [f"🌐 **Web Search Results for:** \"{user_input}\"\n"]
+
+                for i, r in enumerate(search_result["results"][:7], 1):
+                    title = r.get('title', 'No title')
+                    text = r.get('text', '')[:300]
+                    url = r.get('url', '')
+
+                    response_lines.append(f"**{i}. {title}**")
+                    if text:
+                        response_lines.append(f"   {text}...")
+                    if url:
+                        response_lines.append(f"   🔗 {url}")
+                    response_lines.append("")
+
+                response_lines.append(f"---\n*Found {len(search_result['results'])} results*")
+
+                yield {"event": "response", "text": "\n".join(response_lines), "route_method": "web_search_only"}
+                yield {"event": "done"}
+                return
+            else:
+                yield {"event": "response", "text": f"🌐 Search failed: {search_result.get('error', 'No results')}", "route_method": "web_search_only"}
+                yield {"event": "done"}
+                return
 
         # STEP 2: LLM processing
         yield {"event": "status", "text": "Thinking..."}
@@ -741,7 +850,7 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
             self.stats["llm_calls"] += 1
             if metrics.timeout_reason and 'fallback' in str(metrics.timeout_reason):
                 if self.config.verbose:
-                    print(f"[FALLBACK] {primary_model} → {fallback_model}")
+                    print(f"[FALLBACK] {primary_model} -> {fallback_model}")
 
             return result
 
@@ -987,6 +1096,98 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
         else:
             return json.dumps(result, indent=2, default=str)
 
+    def _extract_error_context(self, user_input: str) -> Dict[str, Any]:
+        """
+        Extract error context from user input (traceback detection).
+
+        Returns context dict with:
+        - error_type: The exception type (TypeError, ValueError, etc.)
+        - error_message: The error message
+        - code: Code snippet if present
+        """
+        context = {}
+
+        # Common Python error patterns
+        error_patterns = [
+            # Full traceback
+            r"(\w+Error):\s*(.+?)(?:\n|$)",
+            r"(\w+Exception):\s*(.+?)(?:\n|$)",
+            # Just error message
+            r"(TypeError|ValueError|AttributeError|ImportError|KeyError|IndexError|NameError|SyntaxError):\s*(.+)",
+        ]
+
+        for pattern in error_patterns:
+            match = re.search(pattern, user_input, re.IGNORECASE)
+            if match:
+                context["error_type"] = match.group(1)
+                context["error_message"] = match.group(2).strip()
+                break
+
+        # Extract code block if present
+        code_match = re.search(r"```(?:python)?\s*(.*?)```", user_input, re.DOTALL)
+        if code_match:
+            context["code"] = code_match.group(1).strip()
+
+        # Extract line number if present
+        line_match = re.search(r"line (\d+)", user_input, re.IGNORECASE)
+        if line_match:
+            context["line_number"] = int(line_match.group(1))
+
+        return context
+
+    def _save_to_solution_cache(self, error_context: Dict[str, Any], solution: str):
+        """
+        Save a successful solution to the cache for future reuse.
+
+        Only saves if:
+        - Error context is present with error_type
+        - Solution is not empty and doesn't contain error markers
+        - Solution contains code (has code block or specific keywords)
+        """
+        if not error_context or not error_context.get("error_type"):
+            return
+
+        # Validate solution quality
+        if not solution or len(solution) < 20:
+            return
+        if "Error:" in solution or "error" in solution.lower()[:50]:
+            return
+
+        # Check if solution has actionable content
+        has_code = "```" in solution or "def " in solution or "if " in solution
+        has_instruction = any(kw in solution.lower() for kw in ["add", "change", "remove", "replace", "use"])
+
+        if not (has_code or has_instruction):
+            return
+
+        # Determine SWECAS category from error type
+        error_type = error_context.get("error_type", "")
+        swecas_map = {
+            "AttributeError": "NULL_POINTER",
+            "TypeError": "TYPE_ERROR",
+            "ValueError": "TYPE_ERROR",
+            "ImportError": "IMPORT_ERROR",
+            "ModuleNotFoundError": "IMPORT_ERROR",
+            "KeyError": "INDEX_ERROR",
+            "IndexError": "INDEX_ERROR",
+            "SyntaxError": "SYNTAX_ERROR",
+            "NameError": "UNDEFINED_NAME",
+        }
+        swecas_category = swecas_map.get(error_type, "UNKNOWN")
+
+        # Store in cache
+        self.solution_cache.store(
+            error_type=error_context.get("error_type", ""),
+            error_msg=error_context.get("error_message", ""),
+            code_context=error_context.get("code", ""),
+            solution=solution,
+            swecas_category=swecas_category,
+            confidence=0.75  # Initial confidence, will adjust based on success rate
+        )
+
+        if self.config.verbose:
+            print(f"[CACHE] Saved solution for {error_type} ({swecas_category})")
+
     def _handle_special_commands(self, user_input: str) -> Optional[Dict[str, Any]]:
         """Handle special commands like /plan, /help, etc."""
         cmd = user_input.strip().lower()
@@ -1064,9 +1265,25 @@ FAST -> DEEP3 -> DEEP6 -> SEARCH
             return {"response": "No tasks"}
 
         elif cmd == "/stats":
+            # Add No-LLM responder and cache stats
+            no_llm_stats = self.no_llm_responder.get_stats()
+            cache_stats = self.solution_cache.get_stats()
             stats_output = {
                 **self.stats,
-                "deep6_engine": self.deep6_engine.get_statistics()
+                "deep6_engine": self.deep6_engine.get_statistics(),
+                "no_llm": {
+                    "total_no_llm_responses": no_llm_stats.get("total_requests", 0) - no_llm_stats.get("llm_required", 0),
+                    "no_llm_rate_percent": round(no_llm_stats.get("no_llm_rate", 0), 1),
+                    "direct_responses": no_llm_stats.get("direct_responses", 0),
+                    "template_responses": no_llm_stats.get("template_responses", 0),
+                    "command_responses": no_llm_stats.get("command_responses", 0),
+                },
+                "solution_cache": {
+                    "total_solutions": cache_stats.get("total_solutions", 0),
+                    "cache_hit_rate_percent": cache_stats.get("hit_rate_percent", 0),
+                    "cache_hits": cache_stats.get("cache_hits", 0),
+                    "cache_misses": cache_stats.get("cache_misses", 0),
+                }
             }
             return {"response": json.dumps(stats_output, indent=2)}
 
@@ -1465,8 +1682,134 @@ Use /mode fast|deep3|deep|search to switch"""}
         if any(ind in input_upper for ind in ["[DEEP6]", "[DEEP]", "--DEEP"]):
             return ExecutionMode.DEEP6
 
+        # AUTO MODE SELECTION: анализ сложности запроса
+        # SEARCH и SEARCH_DEEP НЕ включены в авто-выбор — только по кнопке!
+        complexity = self._analyze_query_complexity(user_input)
+
+        if complexity == "trivial":
+            return ExecutionMode.FAST
+        elif complexity == "simple":
+            return ExecutionMode.FAST
+        elif complexity == "medium":
+            return ExecutionMode.DEEP3
+        elif complexity == "complex":
+            return ExecutionMode.DEEP6
+        elif complexity == "needs_search":
+            # Автоматически переключаем на SEARCH для не-кодовых вопросов
+            print(f"[AUTO-SEARCH] Query needs web search, switching to SEARCH mode")
+            return ExecutionMode.SEARCH
+
         # Default: current mode
         return self.current_mode
+
+    def _analyze_query_complexity(self, query: str) -> str:
+        """
+        Автоматический анализ сложности запроса.
+
+        Returns:
+            "trivial" - простейшие запросы (2+2, привет)
+            "simple" - однострочные вопросы
+            "medium" - требует анализа кода
+            "complex" - многофайловые изменения, архитектура
+            "needs_search" - требует актуальной информации из интернета
+        """
+        query_lower = query.lower().strip()
+        print(f"[ANALYZE] Input query: '{query_lower[:50]}'")
+        query_len = len(query)
+
+        # TRIVIAL: математика, приветствия (BUT NOT general questions)
+        trivial_patterns = [
+            r"^\d+\s*[\+\-\*\/\%]\s*\d+",  # 2+2, 10/5
+            r"^(hi|hello|hey|привет|ку|хай)\b",
+            r"^what is \d",
+            r"^(ping|test|echo)",
+        ]
+        for pattern in trivial_patterns:
+            if re.match(pattern, query_lower):
+                return "trivial"
+
+        # NEEDS_SEARCH: Check FIRST before length check!
+        # General questions require web search even if short
+        search_indicators = [
+            # Технические запросы
+            r"latest|newest|current|recent|2024|2025|2026",
+            r"cve-\d{4}-\d+",
+            r"documentation|docs|official",
+            r"best practice|how to .* in production",
+            r"version \d+\.\d+",
+
+            # Общие вопросы о персонах/событиях (EN)
+            r"^who is |^who are |^who was ",
+            r"^what is (?!.*\.(py|js|ts|go|rs|java|cpp|c|rb|php))",  # what is X (не файлы)
+            r"^what are |^what was |^what were ",
+            r"^when did |^when was |^when is ",
+            r"^where is |^where are |^where was ",
+            r"^why did |^why is |^why are ",
+            r"^how did .* (happen|start|begin|end)",
+            r"news about|news on|latest news",
+            r"tell me about (?!.*code|.*file|.*function)",
+
+            # Общие вопросы о персонах/событиях (RU)
+            r"^кто такой |^кто такая |^кто такие |^кто это ",
+            r"^что такое (?!.*\.(py|js|ts|go|rs|java|cpp|c|rb|php))",
+            r"^когда |^где |^почему |^зачем ",
+            r"^расскажи о |^расскажи про ",
+            r"новости о |новости про |последние новости",
+            r"что случилось|что произошло",
+
+            # Известные персоны (частые запросы)
+            r"трамп|trump|путин|putin|байден|biden|маск|musk|цукерберг|zuckerberg",
+            r"президент|president|политик|politician|ceo|founder",
+
+            # События и факты
+            r"weather|погода|forecast|прогноз",
+            r"stock|акции|price|цена|курс",
+            r"score|счёт|результат|match|матч",
+        ]
+        for pattern in search_indicators:
+            if re.search(pattern, query_lower):
+                print(f"[ANALYZE] MATCH! Pattern '{pattern}' matched -> needs_search")
+                return "needs_search"
+        print(f"[ANALYZE] No search patterns matched")
+
+        # Now check length - short non-search queries are trivial
+        if query_len < 15:
+            return "trivial"
+
+        # COMPLEX: архитектура, рефакторинг, многофайловые изменения
+        complex_indicators = [
+            r"refactor|redesign|architect",
+            r"multiple files|across.*files|whole.*project",
+            r"migration|upgrade.*from",
+            r"implement.*system|design.*pattern",
+            r"integrate|integration",
+        ]
+        for pattern in complex_indicators:
+            if re.search(pattern, query_lower):
+                return "complex"
+
+        # MEDIUM: анализ кода, исправление багов
+        medium_indicators = [
+            r"fix|bug|error|exception|traceback",
+            r"why.*not work|doesn't work|broken",
+            r"analyze|explain.*code|review",
+            r"add.*function|create.*class|implement",
+        ]
+        for pattern in medium_indicators:
+            if re.search(pattern, query_lower):
+                return "medium"
+
+        # SIMPLE: короткие вопросы
+        if query_len < 100:
+            return "simple"
+
+        # Default based on length
+        if query_len > 500:
+            return "complex"
+        elif query_len > 200:
+            return "medium"
+
+        return "simple"
 
     def strip_mode_prefix(self, user_input: str) -> str:
         """Удалить префиксы режимов из запроса"""
@@ -1596,6 +1939,93 @@ Use /mode fast|deep3|deep|search to switch"""}
         # All backends failed — try SWECAS cache
         return self._try_swecas_cache_fallback({"error": last_error or "All search backends failed"})
 
+    def _process_auto_web_search(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """
+        Автоматический веб-поиск для общих вопросов.
+        Вызывается для вопросов типа "Who is Trump", "Кто такой Путин", etc.
+
+        Returns:
+            Dict с ответом если поиск успешен, None если нужно fallback на LLM
+        """
+        print(f"[AUTO-SEARCH] Processing general question: {user_input[:50]}...")
+
+        try:
+            # Perform web search
+            search_result = self.web_search(user_input)
+            print(f"[AUTO-SEARCH] web_search returned: success={search_result.get('success')}, has_results={bool(search_result.get('results'))}")
+        except Exception as e:
+            print(f"[AUTO-SEARCH] Exception in web_search: {e}")
+            search_result = {"success": False, "error": str(e)}
+
+        # Check for results - look in multiple possible locations
+        results = search_result.get("results") or search_result.get("data", {}).get("results", [])
+        has_success = search_result.get("success", False)
+
+        # Also check if results are directly in response
+        if not results and isinstance(search_result.get("response"), list):
+            results = search_result.get("response")
+
+        print(f"[AUTO-SEARCH] Final check: has_success={has_success}, results_count={len(results) if results else 0}")
+
+        if results:
+            # Format successful search results
+
+            response = f"🔍 **Результаты поиска по запросу:** {user_input}\n\n"
+
+            for i, r in enumerate(results[:5], 1):
+                title = r.get('title', 'No title')
+                text = r.get('text', '')[:400]
+                url = r.get('url', '')
+
+                response += f"### {i}. {title}\n"
+                response += f"{text}\n"
+                if url:
+                    response += f"🔗 [{url[:60]}...]({url})\n"
+                response += "\n"
+
+            response += f"\n---\n_Источник: {search_result.get('source', 'web search')}_"
+
+            return {
+                "input": user_input,
+                "response": response,
+                "tool_calls": [],
+                "thinking": [],
+                "route_method": "auto_web_search",
+                "iterations": 1,
+                "plan_mode": False,
+                "mode": "search",
+                "mode_icon": "🌐",
+                "success": True,
+                "web_search": search_result
+            }
+        else:
+            # No internet or search failed
+            error_msg = search_result.get("error", "Unknown error")
+
+            response = (
+                "🚫 **Доступ в интернет отсутствует**\n\n"
+                f"Не удалось выполнить поиск по запросу: _{user_input}_\n\n"
+                f"Причина: `{error_msg}`\n\n"
+                "**Что делать:**\n"
+                "1. Проверьте подключение к интернету\n"
+                "2. Попробуйте позже\n"
+                "3. Или задайте вопрос о программировании - я могу помочь с кодом!\n"
+            )
+
+            return {
+                "input": user_input,
+                "response": response,
+                "tool_calls": [],
+                "thinking": [],
+                "route_method": "auto_web_search_failed",
+                "iterations": 1,
+                "plan_mode": False,
+                "mode": "search",
+                "mode_icon": "🚫",
+                "success": False,
+                "error": error_msg
+            }
+
     def _try_swecas_cache_fallback(self, failed_result: Dict[str, Any]) -> Dict[str, Any]:
         """Attempt SWECAS cache fallback when web search fails"""
         swecas = getattr(self, '_current_swecas', None)
@@ -1704,15 +2134,19 @@ Please analyze the above query using the web search results (if available) and p
         Обработка с автоматическим определением режима
         Главная точка входа с поддержкой всех режимов
         """
+        print(f"[DEBUG] === process_with_mode() called === input: {user_input[:50]}...")
         import time
 
-        # Определить режим из ввода
-        requested_mode = self.detect_mode_from_input(user_input)
-
-        # Переключить режим если нужно
-        if requested_mode != self.current_mode:
-            self.switch_mode(requested_mode, reason="auto")
-            print(f"[DEBUG process_with_mode] Switched to: {self.current_mode}")
+        # Определить режим из ввода (НО не переключать если пользователь явно выбрал SEARCH)
+        if self.current_mode == ExecutionMode.SEARCH:
+            # Пользователь явно выбрал SEARCH — не переключать автоматически
+            print(f"[DEBUG process_with_mode] SEARCH mode locked by user, skipping auto-detection")
+        else:
+            requested_mode = self.detect_mode_from_input(user_input)
+            # Переключить режим если нужно
+            if requested_mode != self.current_mode:
+                self.switch_mode(requested_mode, reason="auto")
+                print(f"[DEBUG process_with_mode] Switched to: {self.current_mode}")
 
         # Убрать префиксы режимов
         clean_input = self.strip_mode_prefix(user_input)
@@ -1734,50 +2168,51 @@ Please analyze the above query using the web search results (if available) and p
                 "plan_mode": self.plan_mode.is_active
             }
 
-        # DEEP SEARCH: выполнить веб-поиск и напрямую LLM (без pattern routing)
-        print(f"[DEBUG process_with_mode] Checking DEEP_SEARCH: current={self.current_mode}, expected={ExecutionMode.SEARCH}")
+        # SEARCH MODE: чистый веб-поиск БЕЗ LLM (только результаты)
+        print(f"[DEBUG process_with_mode] SEARCH mode: {self.current_mode}")
         if self.current_mode == ExecutionMode.SEARCH:
             search_result = self.web_search(clean_input)
 
-            # Форматировать результаты поиска
+            # Форматировать результаты поиска (БЕЗ LLM!)
             if search_result["success"] and search_result["results"]:
-                context = "Web search results:\n"
-                for r in search_result["results"][:5]:
-                    text = r.get('text', '')[:200]
-                    context += f"- {r.get('title', '')}: {text}\n"
-                    if r.get("url"):
-                        context += f"  URL: {r['url']}\n"
+                # Красивое форматирование результатов
+                response_lines = [f"🌐 **Web Search Results for:** \"{clean_input}\"\n"]
 
-                # LLM анализ результатов (lightweight, no tools/history)
-                analysis_prompt = f"""Query: "{clean_input}"
+                for i, r in enumerate(search_result["results"][:7], 1):
+                    title = r.get('title', 'No title')
+                    text = r.get('text', '')[:300]
+                    url = r.get('url', '')
 
-{context}
+                    response_lines.append(f"**{i}. {title}**")
+                    if text:
+                        response_lines.append(f"   {text}...")
+                    if url:
+                        response_lines.append(f"   🔗 {url}")
+                    response_lines.append("")
 
-Summarize key findings in 3-5 bullet points. Include URLs."""
-
-                llm_response = self._call_llm_search(analysis_prompt)
+                response_lines.append(f"---\n*Found {len(search_result['results'])} results*")
 
                 return {
                     "success": True,
-                    "response": llm_response or "No analysis available",
+                    "response": "\n".join(response_lines),
                     "mode": self.current_mode.value,
                     "mode_icon": self.current_mode.icon,
                     "tool_calls": [],
                     "thinking": [],
-                    "route_method": "deep_search",
-                    "iterations": 1,
+                    "route_method": "web_search_only",  # NO LLM!
+                    "iterations": 0,
                     "plan_mode": self.plan_mode.is_active,
                     "web_search": search_result
                 }
             else:
                 return {
                     "success": False,
-                    "response": f"Web search failed: {search_result.get('error', 'No results')}",
+                    "response": f"🌐 Web search failed: {search_result.get('error', 'No results found')}",
                     "mode": self.current_mode.value,
                     "mode_icon": self.current_mode.icon,
                     "tool_calls": [],
                     "thinking": [],
-                    "route_method": "deep_search",
+                    "route_method": "web_search_only",
                     "iterations": 0,
                     "plan_mode": self.plan_mode.is_active
                 }
@@ -1796,13 +2231,37 @@ Summarize key findings in 3-5 bullet points. Include URLs."""
             result["mode"] = self.current_mode.value
             result["mode_icon"] = self.current_mode.icon
 
+            # AUTO-ESCALATION: Проверить на пустой ответ (timeout handled internally)
+            response_text = result.get("response", "")
+            is_timeout_response = (
+                not response_text or
+                response_text == "Error: No response from LLM" or
+                "timeout" in response_text.lower()
+            )
+
+            if is_timeout_response and self.config.auto_escalation:
+                elapsed = time.time() - start_time
+                if self.config.verbose:
+                    print(f"[AUTO-ESCALATION] Empty response after {elapsed:.1f}s, escalating...")
+
+                escalation = self.escalate_mode()
+                if escalation["success"]:
+                    # Retry with escalated mode
+                    return self.process_with_mode(user_input)
+                else:
+                    result["escalation_failed"] = True
+                    result["escalation_message"] = escalation.get("message", "Max escalation reached")
+
             return result
 
-        except requests.exceptions.Timeout:
+        except (LLMTimeoutError, requests.exceptions.Timeout) as e:
             elapsed = time.time() - start_time
 
             # Автоматическая эскалация при timeout
             if self.config.auto_escalation:
+                if self.config.verbose:
+                    print(f"[AUTO-ESCALATION] Timeout exception after {elapsed:.1f}s, escalating...")
+
                 escalation = self.escalate_mode()
 
                 if escalation["success"]:
@@ -1812,7 +2271,8 @@ Summarize key findings in 3-5 bullet points. Include URLs."""
                     return {
                         "success": False,
                         "error": f"Timeout after {elapsed:.1f}s. Max escalation reached.",
-                        "mode": self.current_mode.value
+                        "mode": self.current_mode.value,
+                        "partial_result": getattr(e, 'partial_result', None)
                     }
             else:
                 return {
