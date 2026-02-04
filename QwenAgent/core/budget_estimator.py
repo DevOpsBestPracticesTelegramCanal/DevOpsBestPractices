@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-budget_estimator.py — Автоматическая оценка бюджета задачи
-==========================================================
+budget_estimator.py — Автоматическая оценка бюджета задачи с историей
+=====================================================================
 
-Фаза 2: Определяет бюджет задачи на основе:
+Фаза 2+3: Определяет бюджет задачи на основе:
 - Режима выполнения (FAST, DEEP3, DEEP6, SEARCH)
 - Пользовательских предпочтений (max_wait, priority)
 - Характеристик запроса (длина промпта, сложность)
+- ИСТОРИИ ВЫЗОВОВ (калибровка на железо пользователя)
 
-Принцип: "Агент определяет базовый бюджет по режиму,
-          пользователь ограничивает потолком max_wait"
+Принцип работы истории:
+1. Каждый вызов LLM записывается: (mode, prompt_tokens, actual_time)
+2. После 20+ записей confidence достигает 1.0
+3. Предсказание учитывает медианное время для похожих запросов
+4. Суперлинейное масштабирование при >8k токенов
 
 Использование:
     from core.budget_estimator import estimate_task_budget, BudgetEstimator
@@ -21,17 +25,60 @@ budget_estimator.py — Автоматическая оценка бюджета
         prompt_length=500
     )
 
-    # Или через класс
-    estimator = BudgetEstimator(user_prefs)
+    # Или через класс с историей
+    estimator = BudgetEstimator(user_prefs, history_file="llm_history.json")
     budget = estimator.create_budget(mode, prompt)
+
+    # После выполнения - записать фактическое время
+    estimator.record_actual(estimate, actual_seconds=45.2, success=True)
 """
 
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
+import json
+import os
+import time
+import statistics
+from pathlib import Path
+from typing import Optional, Dict, Any, List, Tuple
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
 
 from .execution_mode import ExecutionMode
 from .user_timeout_config import UserTimeoutPreferences
 from .time_budget import TimeBudget, BudgetPresets
+
+
+@dataclass
+class HistoryRecord:
+    """Запись истории вызова LLM."""
+    timestamp: float
+    mode: str
+    prompt_tokens: int
+    output_tokens: int
+    estimated_seconds: float
+    actual_seconds: float
+    success: bool
+    model: str = "unknown"
+
+    @property
+    def ratio(self) -> float:
+        """Отношение actual/estimated."""
+        if self.estimated_seconds > 0:
+            return self.actual_seconds / self.estimated_seconds
+        return 1.0
+
+    @property
+    def tokens_per_second(self) -> float:
+        """Скорость генерации токенов."""
+        if self.actual_seconds > 0:
+            return self.output_tokens / self.actual_seconds
+        return 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "HistoryRecord":
+        return cls(**data)
 
 
 @dataclass
@@ -43,6 +90,8 @@ class BudgetEstimate:
     critical_step: str
     adjustments: Dict[str, float]  # Какие корректировки применены
     confidence: float  # Уверенность в оценке (0.0 - 1.0)
+    history_based: bool = False  # Использована ли история
+    similar_calls: int = 0  # Количество похожих вызовов в истории
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -51,20 +100,28 @@ class BudgetEstimate:
             "steps": self.steps,
             "critical_step": self.critical_step,
             "adjustments": self.adjustments,
-            "confidence": f"{self.confidence:.0%}"
+            "confidence": f"{self.confidence:.0%}",
+            "history_based": self.history_based,
+            "similar_calls": self.similar_calls
         }
 
 
 class BudgetEstimator:
     """
-    Оценщик бюджета для задач.
+    Оценщик бюджета для задач с историей вызовов.
 
     Учитывает:
     1. Режим выполнения (базовый бюджет)
     2. Длину промпта (корректировка на prefill)
     3. Приоритет пользователя (speed/quality)
     4. Потолок max_wait (жёсткое ограничение)
-    5. Историю выполнения (если доступна)
+    5. ИСТОРИЮ ВЫПОЛНЕНИЯ (калибровка на железо пользователя)
+
+    История:
+    - Сохраняется в JSON файл между сессиями
+    - После 20+ записей confidence достигает 1.0
+    - Предсказание основано на медиане похожих вызовов
+    - Учитывает суперлинейное масштабирование >8k токенов
     """
 
     # Базовые бюджеты по режимам (секунды)
@@ -104,31 +161,179 @@ class BudgetEstimator:
         "quality": 1.5,
     }
 
-    # Пороги длины промпта для корректировки
+    # Пороги длины промпта для корректировки (токены)
     PROMPT_LENGTH_THRESHOLDS = [
-        (500, 1.0),    # < 500 слов: без корректировки
+        (500, 1.0),    # < 500 токенов: без корректировки
         (1000, 1.1),   # 500-1000: +10%
         (2000, 1.25),  # 1000-2000: +25%
         (5000, 1.5),   # 2000-5000: +50%
-        (10000, 2.0),  # 5000-10000: +100%
-        (float('inf'), 2.5),  # > 10000: +150%
+        (8000, 2.0),   # 5000-8000: +100% (граница суперлинейности)
+        (16000, 3.0),  # 8000-16000: +200% (суперлинейное масштабирование)
+        (float('inf'), 4.0),  # > 16000: +300%
     ]
 
-    def __init__(self, user_prefs: UserTimeoutPreferences = None):
+    # Эмпирические коэффициенты суперлинейного масштабирования
+    # При >8k токенов время растёт быстрее чем линейно
+    SUPERLINEAR_THRESHOLD = 8000
+    SUPERLINEAR_EXPONENT = 1.3  # t ~ tokens^1.3 при >8k
+
+    # Минимальное количество записей для надёжного предсказания
+    MIN_HISTORY_FOR_PREDICTION = 5
+    FULL_CONFIDENCE_HISTORY = 20
+
+    def __init__(
+        self,
+        user_prefs: UserTimeoutPreferences = None,
+        history_file: str = None,
+        auto_save: bool = True
+    ):
         """
-        Инициализация оценщика.
+        Инициализация оценщика с историей.
 
         Args:
             user_prefs: Пользовательские предпочтения
+            history_file: Путь к файлу истории (по умолчанию .qwencode/budget_history.json)
+            auto_save: Автоматически сохранять историю после каждой записи
         """
         self.user_prefs = user_prefs or UserTimeoutPreferences()
-        self.history: list = []  # История оценок для калибровки
+        self.auto_save = auto_save
+
+        # Определяем путь к файлу истории
+        if history_file:
+            self.history_file = Path(history_file)
+        else:
+            qwencode_dir = Path.home() / ".qwencode"
+            qwencode_dir.mkdir(exist_ok=True)
+            self.history_file = qwencode_dir / "budget_history.json"
+
+        # Загружаем историю
+        self.history: List[HistoryRecord] = self._load_history()
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # HISTORY PERSISTENCE
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _load_history(self) -> List[HistoryRecord]:
+        """Загрузить историю из файла."""
+        if not self.history_file.exists():
+            return []
+
+        try:
+            with open(self.history_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return [HistoryRecord.from_dict(r) for r in data]
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            print(f"[BudgetEstimator] Warning: Could not load history: {e}")
+            return []
+
+    def _save_history(self):
+        """Сохранить историю в файл."""
+        try:
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                data = [r.to_dict() for r in self.history]
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[BudgetEstimator] Warning: Could not save history: {e}")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # HISTORY-BASED PREDICTION
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _find_similar_calls(
+        self,
+        mode: str,
+        prompt_tokens: int,
+        tolerance: float = 0.3
+    ) -> List[HistoryRecord]:
+        """
+        Найти похожие вызовы в истории.
+
+        Args:
+            mode: Режим выполнения
+            prompt_tokens: Количество токенов промпта
+            tolerance: Допустимое отклонение по токенам (30%)
+
+        Returns:
+            Список похожих записей
+        """
+        similar = []
+        min_tokens = int(prompt_tokens * (1 - tolerance))
+        max_tokens = int(prompt_tokens * (1 + tolerance))
+
+        for record in self.history:
+            if record.mode == mode and record.success:
+                if min_tokens <= record.prompt_tokens <= max_tokens:
+                    similar.append(record)
+
+        return similar
+
+    def _predict_from_history(
+        self,
+        mode: str,
+        prompt_tokens: int
+    ) -> Tuple[Optional[float], int]:
+        """
+        Предсказать время на основе истории.
+
+        Args:
+            mode: Режим выполнения
+            prompt_tokens: Количество токенов
+
+        Returns:
+            (predicted_seconds, similar_count) или (None, 0) если недостаточно данных
+        """
+        similar = self._find_similar_calls(mode, prompt_tokens)
+
+        if len(similar) < self.MIN_HISTORY_FOR_PREDICTION:
+            return None, 0
+
+        # Используем медиану для устойчивости к выбросам
+        actual_times = [r.actual_seconds for r in similar]
+        median_time = statistics.median(actual_times)
+
+        # Корректировка на суперлинейное масштабирование
+        if prompt_tokens > self.SUPERLINEAR_THRESHOLD:
+            # Если большинство похожих вызовов были с меньшим количеством токенов,
+            # применяем суперлинейную корректировку
+            avg_similar_tokens = statistics.mean([r.prompt_tokens for r in similar])
+            if avg_similar_tokens < prompt_tokens:
+                ratio = prompt_tokens / avg_similar_tokens
+                # t ~ tokens^1.3 для >8k токенов
+                scale_factor = ratio ** self.SUPERLINEAR_EXPONENT
+                median_time *= scale_factor
+
+        return median_time, len(similar)
+
+    def _get_calibration_factor(self) -> float:
+        """
+        Получить калибровочный коэффициент на основе истории.
+
+        Если оценки систематически занижены/завышены, корректируем.
+        """
+        if len(self.history) < self.MIN_HISTORY_FOR_PREDICTION:
+            return 1.0
+
+        # Считаем среднее отношение actual/estimated
+        ratios = [r.ratio for r in self.history if r.success]
+        if not ratios:
+            return 1.0
+
+        # Используем медиану для устойчивости
+        median_ratio = statistics.median(ratios)
+
+        # Ограничиваем корректировку разумными пределами (0.5x - 2.0x)
+        return max(0.5, min(2.0, median_ratio))
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MAIN ESTIMATION
+    # ═══════════════════════════════════════════════════════════════════════════
 
     def estimate(
         self,
         mode: ExecutionMode,
         prompt: str = "",
-        complexity_hint: str = None
+        complexity_hint: str = None,
+        prompt_tokens: int = None
     ) -> BudgetEstimate:
         """
         Оценить бюджет для задачи.
@@ -137,56 +342,94 @@ class BudgetEstimator:
             mode: Режим выполнения
             prompt: Текст запроса (для оценки длины)
             complexity_hint: Подсказка о сложности ("simple", "medium", "complex")
+            prompt_tokens: Точное количество токенов (если известно)
 
         Returns:
             BudgetEstimate с деталями оценки
         """
         adjustments = {}
+        history_based = False
+        similar_count = 0
 
-        # 1. Базовый бюджет по режиму
-        base = self.MODE_BASE_BUDGETS.get(mode, 120)
-        adjustments["base"] = base
+        # Оценка токенов (примерно 1.3 токена на слово для английского)
+        if prompt_tokens is None:
+            word_count = len(prompt.split()) if prompt else 0
+            prompt_tokens = int(word_count * 1.3)
 
-        # 2. Корректировка по длине промпта
-        prompt_length = len(prompt.split()) if prompt else 0
-        prompt_multiplier = self._get_prompt_multiplier(prompt_length)
-        adjustments["prompt_length"] = prompt_multiplier
+        mode_str = mode.value if hasattr(mode, 'value') else str(mode)
 
-        # 3. Корректировка по приоритету пользователя
-        priority_multiplier = self.PRIORITY_MULTIPLIERS.get(
-            self.user_prefs.priority, 1.0
-        )
-        adjustments["priority"] = priority_multiplier
+        # ═══════════════════════════════════════════════════════════════════════
+        # ПОПЫТКА ПРЕДСКАЗАНИЯ ИЗ ИСТОРИИ
+        # ═══════════════════════════════════════════════════════════════════════
 
-        # 4. Корректировка по сложности (если указана)
-        complexity_multiplier = 1.0
-        if complexity_hint:
-            complexity_multiplier = {
-                "simple": 0.7,
-                "medium": 1.0,
-                "complex": 1.5,
-                "very_complex": 2.0
-            }.get(complexity_hint, 1.0)
-            adjustments["complexity"] = complexity_multiplier
+        history_prediction, similar_count = self._predict_from_history(mode_str, prompt_tokens)
 
-        # Вычисляем итоговый бюджет
-        estimated = base * prompt_multiplier * priority_multiplier * complexity_multiplier
+        if history_prediction is not None:
+            # Используем предсказание из истории
+            history_based = True
+            estimated = history_prediction
+            adjustments["history_prediction"] = history_prediction
+            adjustments["similar_calls"] = similar_count
+        else:
+            # ═══════════════════════════════════════════════════════════════════
+            # FALLBACK: ФОРМУЛЬНАЯ ОЦЕНКА
+            # ═══════════════════════════════════════════════════════════════════
 
-        # 5. Ограничиваем пользовательским max_wait
+            # 1. Базовый бюджет по режиму
+            base = self.MODE_BASE_BUDGETS.get(mode, 120)
+            adjustments["base"] = base
+
+            # 2. Корректировка по длине промпта
+            prompt_multiplier = self._get_prompt_multiplier(prompt_tokens)
+            adjustments["prompt_tokens"] = prompt_tokens
+            adjustments["prompt_multiplier"] = prompt_multiplier
+
+            # 3. Корректировка по приоритету пользователя
+            priority_multiplier = self.PRIORITY_MULTIPLIERS.get(
+                self.user_prefs.priority, 1.0
+            )
+            adjustments["priority"] = priority_multiplier
+
+            # 4. Корректировка по сложности (если указана)
+            complexity_multiplier = 1.0
+            if complexity_hint:
+                complexity_multiplier = {
+                    "simple": 0.7,
+                    "medium": 1.0,
+                    "complex": 1.5,
+                    "very_complex": 2.0
+                }.get(complexity_hint, 1.0)
+                adjustments["complexity"] = complexity_multiplier
+
+            # 5. Калибровочный коэффициент из истории
+            calibration = self._get_calibration_factor()
+            if calibration != 1.0:
+                adjustments["calibration"] = calibration
+
+            # Вычисляем итоговый бюджет
+            estimated = base * prompt_multiplier * priority_multiplier * complexity_multiplier * calibration
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # ФИНАЛЬНЫЕ ОГРАНИЧЕНИЯ
+        # ═══════════════════════════════════════════════════════════════════════
+
+        # Ограничиваем пользовательским max_wait
         final = min(estimated, self.user_prefs.max_wait)
         if final < estimated:
             adjustments["max_wait_cap"] = self.user_prefs.max_wait
 
         # Определяем уверенность
-        confidence = self._calculate_confidence(prompt_length, complexity_hint)
+        confidence = self._calculate_confidence(prompt_tokens, complexity_hint, similar_count)
 
         return BudgetEstimate(
             total_seconds=final,
-            mode=mode.value,
+            mode=mode_str,
             steps=self.MODE_STEPS.get(mode, ["execute"]),
             critical_step=self.MODE_CRITICAL_STEPS.get(mode, "execute"),
             adjustments=adjustments,
-            confidence=confidence
+            confidence=confidence,
+            history_based=history_based,
+            similar_calls=similar_count
         )
 
     def create_budget(
@@ -214,45 +457,73 @@ class BudgetEstimator:
             critical_step=estimate.critical_step
         )
 
-    def _get_prompt_multiplier(self, word_count: int) -> float:
-        """Получить множитель на основе длины промпта."""
+    def _get_prompt_multiplier(self, token_count: int) -> float:
+        """
+        Получить множитель на основе количества токенов.
+
+        Включает суперлинейное масштабирование для >8k токенов.
+        """
         for threshold, multiplier in self.PROMPT_LENGTH_THRESHOLDS:
-            if word_count < threshold:
+            if token_count < threshold:
                 return multiplier
-        return 2.5
+
+        # Суперлинейное масштабирование для очень длинных промптов
+        return 4.0
 
     def _calculate_confidence(
         self,
-        prompt_length: int,
-        complexity_hint: str
+        prompt_tokens: int,
+        complexity_hint: str,
+        similar_calls: int = 0
     ) -> float:
         """
         Рассчитать уверенность в оценке.
 
-        Высокая уверенность: есть complexity_hint, средняя длина промпта
-        Низкая уверенность: нет подсказок, очень длинный/короткий промпт
+        Уверенность растёт с количеством похожих вызовов в истории.
+        После 20+ записей достигает 1.0.
+
+        Args:
+            prompt_tokens: Количество токенов в промпте
+            complexity_hint: Подсказка о сложности
+            similar_calls: Количество похожих вызовов в истории
         """
-        confidence = 0.7  # Базовая уверенность
+        # Базовая уверенность зависит от истории
+        if similar_calls >= self.FULL_CONFIDENCE_HISTORY:
+            # После 20+ похожих вызовов - максимальная уверенность
+            confidence = 1.0
+        elif similar_calls >= self.MIN_HISTORY_FOR_PREDICTION:
+            # 5-20 похожих вызовов - высокая уверенность
+            confidence = 0.7 + (similar_calls - self.MIN_HISTORY_FOR_PREDICTION) * 0.02
+        else:
+            # Мало данных - формульная оценка
+            confidence = 0.5
 
         # Подсказка о сложности повышает уверенность
-        if complexity_hint:
-            confidence += 0.15
-
-        # Экстремальная длина снижает уверенность
-        if prompt_length < 50 or prompt_length > 5000:
-            confidence -= 0.1
-
-        # История использования повышает уверенность
-        if len(self.history) > 10:
+        if complexity_hint and similar_calls < self.MIN_HISTORY_FOR_PREDICTION:
             confidence += 0.1
 
-        return min(max(confidence, 0.3), 1.0)
+        # Экстремальная длина снижает уверенность (только без истории)
+        if similar_calls < self.MIN_HISTORY_FOR_PREDICTION:
+            if prompt_tokens < 50 or prompt_tokens > 10000:
+                confidence -= 0.1
+
+        # Общая история тоже повышает уверенность (калибровка)
+        total_history = len(self.history)
+        if total_history >= self.FULL_CONFIDENCE_HISTORY:
+            confidence = min(confidence + 0.1, 1.0)
+        elif total_history >= self.MIN_HISTORY_FOR_PREDICTION:
+            confidence = min(confidence + 0.05, 1.0)
+
+        return max(0.3, min(1.0, confidence))
 
     def record_actual(
         self,
         estimate: BudgetEstimate,
         actual_seconds: float,
-        success: bool
+        success: bool,
+        prompt_tokens: int = 0,
+        output_tokens: int = 0,
+        model: str = "unknown"
     ):
         """
         Записать фактическое время для калибровки.
@@ -261,18 +532,87 @@ class BudgetEstimator:
             estimate: Исходная оценка
             actual_seconds: Фактическое время выполнения
             success: Успешно ли завершилась задача
+            prompt_tokens: Количество токенов в промпте
+            output_tokens: Количество сгенерированных токенов
+            model: Название модели
         """
-        self.history.append({
-            "estimate": estimate.total_seconds,
-            "actual": actual_seconds,
-            "ratio": actual_seconds / estimate.total_seconds if estimate.total_seconds > 0 else 1.0,
-            "success": success,
-            "mode": estimate.mode
-        })
+        # Извлекаем prompt_tokens из adjustments если не передан
+        if prompt_tokens == 0:
+            prompt_tokens = estimate.adjustments.get("prompt_tokens", 0)
 
-        # Ограничиваем историю
-        if len(self.history) > 100:
-            self.history = self.history[-100:]
+        record = HistoryRecord(
+            timestamp=time.time(),
+            mode=estimate.mode,
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
+            estimated_seconds=estimate.total_seconds,
+            actual_seconds=actual_seconds,
+            success=success,
+            model=model
+        )
+
+        self.history.append(record)
+
+        # Ограничиваем историю (храним последние 500 записей)
+        if len(self.history) > 500:
+            self.history = self.history[-500:]
+
+        # Автосохранение
+        if self.auto_save:
+            self._save_history()
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """
+        Получить статистику по истории вызовов.
+
+        Returns:
+            Словарь со статистикой
+        """
+        if not self.history:
+            return {"total_calls": 0, "message": "No history yet"}
+
+        successful = [r for r in self.history if r.success]
+        failed = [r for r in self.history if not r.success]
+
+        stats = {
+            "total_calls": len(self.history),
+            "successful": len(successful),
+            "failed": len(failed),
+            "success_rate": f"{len(successful) / len(self.history) * 100:.1f}%",
+        }
+
+        if successful:
+            ratios = [r.ratio for r in successful]
+            stats["median_ratio"] = f"{statistics.median(ratios):.2f}"
+            stats["mean_ratio"] = f"{statistics.mean(ratios):.2f}"
+
+            times = [r.actual_seconds for r in successful]
+            stats["median_time"] = f"{statistics.median(times):.1f}s"
+            stats["total_time"] = f"{sum(times):.0f}s"
+
+            # Статистика по режимам
+            modes = {}
+            for r in successful:
+                if r.mode not in modes:
+                    modes[r.mode] = []
+                modes[r.mode].append(r.actual_seconds)
+
+            stats["by_mode"] = {
+                mode: f"{statistics.median(times):.1f}s (n={len(times)})"
+                for mode, times in modes.items()
+            }
+
+        # Калибровочный коэффициент
+        stats["calibration_factor"] = f"{self._get_calibration_factor():.2f}"
+        stats["confidence_level"] = "high" if len(self.history) >= self.FULL_CONFIDENCE_HISTORY else "medium" if len(self.history) >= self.MIN_HISTORY_FOR_PREDICTION else "low"
+
+        return stats
+
+    def clear_history(self):
+        """Очистить историю."""
+        self.history = []
+        if self.auto_save:
+            self._save_history()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

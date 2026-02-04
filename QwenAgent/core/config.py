@@ -27,10 +27,15 @@ class ModelConfig:
     """
     Configurable model settings.
     Supports any Ollama model or synthesis endpoint.
+
+    UPDATED 2026-02-04: Changed heavy_model default to 3B
+    - Faster execution (3x speedup on CPU)
+    - Still excellent quality for most tasks
+    - Use --heavy-model=qwen2.5-coder:7b for maximum quality
     """
     # Default models (can be overridden)
     fast_model: str = "qwen2.5-coder:3b"
-    heavy_model: str = "qwen2.5-coder:7b"
+    heavy_model: str = "qwen2.5-coder:3b"  # CHANGED from 7b to 3b for speed
     search_model: str = "qwen2.5-coder:3b"
 
     # Ollama endpoint
@@ -72,10 +77,14 @@ class TimeoutConfig:
     """
     Timeout settings for each operation.
     Prevents hangs and enables retry logic.
+
+    UPDATED 2026-02-04: Reduced timeouts for better UX
+    - step_timeout: 120s → 60s (1 min per step)
+    - total_timeout: 300s → 180s (3 min total for FAST mode)
     """
-    step_timeout: int = 120      # Per-step timeout (seconds)
-    total_timeout: int = 300     # Total operation timeout
-    ollama_timeout: int = 120    # Ollama API timeout
+    step_timeout: int = 60       # Per-step timeout (seconds) - REDUCED from 120
+    total_timeout: int = 180     # Total operation timeout - REDUCED from 300
+    ollama_timeout: int = 60     # Ollama API timeout - REDUCED from 120
 
     # Retry settings
     max_retries: int = 3
