@@ -732,12 +732,112 @@ def call_llm_stream(message: str, model: str = None, yield_func: callable = None
 
 
 # ============================================================================
+# OLLAMA AUTO-START
+# ============================================================================
+
+def is_ollama_running() -> bool:
+    """Check if Ollama server is running"""
+    try:
+        response = requests.get(f"{config.ollama_url}/api/tags", timeout=5)
+        return response.status_code == 200
+    except:
+        return False
+
+
+def start_ollama() -> bool:
+    """
+    Start Ollama server automatically.
+
+    Tries multiple methods:
+    1. PowerShell (Windows)
+    2. subprocess (cross-platform)
+
+    Returns:
+        True if Ollama started successfully
+    """
+    import subprocess
+    import platform
+
+    print("  [OLLAMA] Starting Ollama server...")
+
+    try:
+        if platform.system() == "Windows":
+            # Windows: use PowerShell to start hidden process
+            subprocess.Popen(
+                ["powershell", "-Command",
+                 "Start-Process", "ollama", "-ArgumentList", "'serve'",
+                 "-WindowStyle", "Hidden"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        else:
+            # Linux/Mac: use nohup
+            subprocess.Popen(
+                ["nohup", "ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+
+        # Wait for Ollama to start (up to 30 seconds)
+        for i in range(30):
+            time.sleep(1)
+            if is_ollama_running():
+                print(f"  [OLLAMA] Started successfully in {i+1}s")
+                return True
+            if i % 5 == 4:
+                print(f"  [OLLAMA] Waiting... ({i+1}s)")
+
+        print("  [OLLAMA] Failed to start within 30 seconds")
+        return False
+
+    except FileNotFoundError:
+        print("  [OLLAMA] Error: 'ollama' not found in PATH")
+        print("  [OLLAMA] Install from: https://ollama.ai")
+        return False
+    except Exception as e:
+        print(f"  [OLLAMA] Error starting: {e}")
+        return False
+
+
+def ensure_ollama_running() -> bool:
+    """
+    Ensure Ollama is running, start if needed.
+
+    Returns:
+        True if Ollama is running (was running or successfully started)
+    """
+    if is_ollama_running():
+        print("  [OLLAMA] Already running ✓")
+        return True
+
+    print("  [OLLAMA] Not running, attempting auto-start...")
+    return start_ollama()
+
+
+# ============================================================================
 # WARMUP
 # ============================================================================
 
-def warmup_model():
-    """Warmup model before serving"""
-    print(f"\n  [WARMUP] Prогрев модели: {config.fast_model}")
+def warmup_model(auto_start: bool = True):
+    """
+    Warmup model before serving.
+
+    Args:
+        auto_start: If True, automatically start Ollama if not running
+    """
+    # Step 1: Ensure Ollama is running
+    if auto_start:
+        if not ensure_ollama_running():
+            print("  [WARMUP] Cannot warmup - Ollama not available")
+            return False
+    else:
+        if not is_ollama_running():
+            print("  [WARMUP] Ollama not running! Start with: ollama serve")
+            return False
+
+    # Step 2: Warmup the model
+    print(f"\n  [WARMUP] Прогрев модели: {config.fast_model}")
 
     start = time.time()
 
@@ -764,7 +864,7 @@ def warmup_model():
             return False
 
     except requests.exceptions.ConnectionError:
-        print(f"  [WARMUP] Ollama not running! Start with: ollama serve")
+        print(f"  [WARMUP] Connection failed after Ollama start")
         return False
     except Exception as e:
         print(f"  [WARMUP] Error: {e}")
@@ -1241,6 +1341,7 @@ def main():
     parser = argparse.ArgumentParser(description="QwenCode Unified Server")
     parser.add_argument("--port", type=int, default=5002, help="Server port")
     parser.add_argument("--no-warmup", action="store_true", help="Skip model warmup")
+    parser.add_argument("--no-auto-start", action="store_true", help="Don't auto-start Ollama")
     parser.add_argument("--no-exit-handler", action="store_true", help="Disable exit handler")
     parser.add_argument("--open", action="store_true", help="Open browser")
     parser.add_argument("--debug", action="store_true", help="Debug mode")
@@ -1255,6 +1356,7 @@ def main():
     print(f"  Heavy model:       {config.heavy_model}")
     print(f"  Ollama URL:        {config.ollama_url}")
     print(f"  Port:              {args.port}")
+    print(f"  Ollama auto-start: {'[+] enabled' if not args.no_auto_start else '[-] disabled'}")
     print(f"  SWECAS:            {'[+] enabled' if HAS_SWECAS else '[-] disabled'}")
     print(f"  ApprovalManager:   {'[+] enabled' if HAS_APPROVAL else '[-] disabled'}")
     print(f"  ExitHandler:       {'[+] enabled' if HAS_EXIT_HANDLER and not args.no_exit_handler else '[-] disabled'}")
@@ -1276,9 +1378,9 @@ def main():
         register_exit_handler()
         print("  [EXIT HANDLER] При выходе: автозапуск сервера + прогрев модели")
 
-    # Warmup
+    # Warmup (with optional Ollama auto-start)
     if not args.no_warmup:
-        warmup_model()
+        warmup_model(auto_start=not args.no_auto_start)
 
     # Open browser
     if args.open:
