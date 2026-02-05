@@ -47,6 +47,7 @@ class TaskType(Enum):
     TRANSLATE = "translate"     # Translate code to another language
     DOCUMENT = "document"       # Add documentation
     DEBUG = "debug"             # Debug/trace issue
+    SEARCH = "search"           # Search/find in codebase
     UNKNOWN = "unknown"
 
 
@@ -135,6 +136,10 @@ TASK_PATTERNS_RU = {
         r"отладь", r"дебаг", r"найди\s+(?:баг|ошибку)",
         r"почему\s+(?:не\s+работает|падает|ошибка)",
     ],
+    TaskType.SEARCH: [
+        r"найди", r"покажи", r"поищи", r"где\s+(?:находится|находятся)",
+        r"в\s+каких\s+файлах", r"список\s+(?:всех|файлов)",
+    ],
 }
 
 # Task type detection patterns (English)
@@ -173,6 +178,10 @@ TASK_PATTERNS_EN = {
     ],
     TaskType.DEBUG: [
         r"debug", r"trace", r"find\s+bug", r"why\s+(?:doesn't|isn't|not)",
+    ],
+    TaskType.SEARCH: [
+        r"\bfind\b", r"\bsearch\b", r"show\s+(?:me\s+)?(?:all|the)",
+        r"where\s+(?:is|are)", r"list\s+(?:all|the)", r"locate",
     ],
 }
 
@@ -228,6 +237,85 @@ FRAMEWORKS = {
     "terraform": ["terraform", "терраформ"],
     "ansible": ["ansible", "ансибл"],
 }
+
+# Search context patterns - what to search for
+# Format: (keywords, grep_pattern, description)
+SEARCH_CONTEXTS = [
+    # Classes - specific patterns first
+    (["наследован", "наследуется", "наследуем", "наслед", "inherit", "extends", "базов", "parent", "subclass", "derived"],
+     r"class \w+\([^)]+\):",
+     "classes with inheritance"),
+
+    (["класс", "классы", "class", "classes"],
+     r"class \w+:",
+     "class definitions"),
+
+    (["dataclass", "датакласс", "data class"],
+     r"@dataclass",
+     "dataclass decorators"),
+
+    # Functions
+    (["async", "асинхрон", "await", "корутин", "coroutine"],
+     r"async def \w+\(",
+     "async functions"),
+
+    (["функци", "function", "def", "метод", "method"],
+     r"def \w+\(",
+     "function definitions"),
+
+    (["__init__", "конструктор", "constructor", "инициализ"],
+     r"def __init__\(",
+     "constructor methods"),
+
+    # Imports
+    (["импорт", "import", "подключ", "зависимост"],
+     r"^(import |from .* import)",
+     "import statements"),
+
+    # Decorators
+    (["декоратор", "decorator", "@"],
+     r"@\w+",
+     "decorators"),
+
+    # Comments
+    (["todo", "fixme", "hack", "xxx"],
+     r"#.*(TODO|FIXME|HACK|XXX)",
+     "TODO comments"),
+
+    # Error handling
+    (["exception", "исключени", "raise", "error", "ошибк"],
+     r"(raise \w+|except \w+)",
+     "exception handling"),
+
+    (["try", "except", "обработка ошибок", "error handling"],
+     r"(try:|except.*:)",
+     "try/except blocks"),
+
+    # Constants
+    (["константа", "constant", "const", "UPPER"],
+     r"^[A-Z][A-Z_0-9]+ =",
+     "constants"),
+
+    # API routes
+    (["route", "endpoint", "api", "маршрут", "роут", "эндпоинт"],
+     r"@(app|blueprint|router)\.(route|get|post|put|delete)",
+     "API routes"),
+
+    # Tests
+    (["тест", "test", "unittest", "pytest"],
+     r"def test_\w+\(",
+     "test functions"),
+
+    # Config
+    (["config", "конфиг", "настройк", "settings", "env"],
+     r"(CONFIG|config|Settings|\.env)",
+     "configuration"),
+
+    # Logging
+    (["лог", "log", "logger", "logging", "print", "debug"],
+     r"(logging\.\w+|print\(|logger\.)",
+     "logging statements"),
+]
 
 # Russian to English term translations
 RU_TO_EN_TERMS = {
@@ -628,6 +716,7 @@ class QueryCrystallizer:
             TaskType.DOCUMENT: "Document",
             TaskType.DEBUG: "Debug",
             TaskType.TRANSLATE: "Translate",
+            TaskType.SEARCH: "Search for",
             TaskType.UNKNOWN: "Process",
         }
 
@@ -660,6 +749,7 @@ class QueryCrystallizer:
             TaskType.DOCUMENT: "Задокументировать",
             TaskType.DEBUG: "Отладить",
             TaskType.TRANSLATE: "Перевести",
+            TaskType.SEARCH: "Найти",
             TaskType.UNKNOWN: "Обработать",
         }
 
@@ -839,6 +929,54 @@ def get_crystallizer() -> QueryCrystallizer:
 def crystallize(query: str, context: Dict[str, Any] = None) -> CrystallizedQuery:
     """Quick crystallization."""
     return get_crystallizer().crystallize(query, context)
+
+
+def translate_search_to_grep(query: str, path: str = ".") -> Optional[Dict[str, Any]]:
+    """
+    Translate natural language search query to grep parameters.
+
+    Args:
+        query: Natural language search query (Russian or English)
+        path: Search path (default: current directory)
+
+    Returns:
+        Dict with grep parameters or None if not a search query
+
+    Examples:
+        >>> translate_search_to_grep("найди все классы с наследованием", "core/")
+        {'pattern': 'class \\w+\\([^)]+\\):', 'path': 'core/', 'glob': '*.py', 'description': 'classes with inheritance'}
+
+        >>> translate_search_to_grep("покажи функции async")
+        {'pattern': 'async def \\w+\\(', 'path': '.', 'glob': '*.py', 'description': 'async functions'}
+    """
+    query_lower = query.lower().strip()
+
+    # Check if this is a search query
+    search_triggers = [
+        "найди", "найти", "поищи", "покажи", "где",
+        "find", "search", "show", "list", "locate", "where"
+    ]
+
+    is_search = any(trigger in query_lower for trigger in search_triggers)
+    if not is_search:
+        return None
+
+    # Find matching search context
+    # Strategy: First pattern with ANY keyword match wins (order matters!)
+    # SEARCH_CONTEXTS is ordered: specific patterns first, generic later
+
+    for keywords, pattern, description in SEARCH_CONTEXTS:
+        matches = sum(1 for kw in keywords if kw.lower() in query_lower)
+        if matches > 0:
+            return {
+                "pattern": pattern,
+                "path": path,
+                "glob": "*.py",
+                "description": description,
+                "confidence": min(matches / len(keywords), 1.0)
+            }
+
+    return None
 
 
 # =============================================================================

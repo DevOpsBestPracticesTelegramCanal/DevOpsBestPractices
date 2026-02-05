@@ -117,15 +117,16 @@ class PatternRouter:
                 'find',
                 self._parse_find
             ),
-            # RUSSIAN: найди/поиск "pattern" в path
+            # RUSSIAN: найди/поиск "pattern" в path (QUOTES REQUIRED for literal pattern)
             (
-                re.compile(r'^(?:найди|найти|поиск|искать)\s+["\']?([^"\']+)["\']?\s+(?:в|в\s+папке|в\s+файле)\s+(.+)$', re.IGNORECASE),
+                re.compile(r'^(?:найди|найти|поиск|искать)\s+["\']([^"\']+)["\']\s+(?:в|в\s+папке|в\s+файле)\s+(.+)$', re.IGNORECASE),
                 'grep',
                 self._parse_grep_in
             ),
-            # RUSSIAN: найди/поиск "pattern"
+            # RUSSIAN: найди/поиск "pattern" (QUOTES REQUIRED for literal pattern)
+            # Natural language queries like "найди все классы" go to search_translation
             (
-                re.compile(r'^(?:найди|найти|поиск|искать)\s+["\']?([^"\']+)["\']?\s*$', re.IGNORECASE),
+                re.compile(r'^(?:найди|найти|поиск|искать)\s+["\']([^"\']+)["\']\s*$', re.IGNORECASE),
                 'grep',
                 self._parse_grep
             ),
@@ -416,6 +417,54 @@ class PatternRouter:
                     }
                 except Exception:
                     continue
+
+        # Fallback: try natural language search translation
+        search_result = self._try_search_translation(message)
+        if search_result:
+            return search_result
+
+        return None
+
+    def _try_search_translation(self, message: str) -> Optional[Dict[str, Any]]:
+        """
+        Try to translate natural language search query to grep command.
+
+        Uses QueryCrystallizer to translate queries like:
+        - "найди классы с наследованием" -> grep pattern
+        - "покажи функции async" -> grep pattern
+        """
+        try:
+            from core.query_crystallizer import translate_search_to_grep
+
+            # Extract path if specified (e.g., "в core/" or "in core/")
+            path = "."
+            path_patterns = [
+                r'\s+(?:в|in|из|from)\s+([^\s]+/?)',  # "в core/", "in src/"
+                r'\s+([^\s]+/)\s*$',  # trailing "core/"
+            ]
+            for p in path_patterns:
+                m = re.search(p, message, re.IGNORECASE)
+                if m:
+                    path = m.group(1).strip()
+                    break
+
+            result = translate_search_to_grep(message, path)
+            if result:
+                return {
+                    "tool": "grep",
+                    "params": {
+                        "pattern": result["pattern"],
+                        "path": result["path"],
+                        "glob": result.get("glob", "*.py"),
+                    },
+                    "original": message,
+                    "matched_by": "search_translation",
+                    "description": result.get("description", "")
+                }
+        except ImportError:
+            pass
+        except Exception:
+            pass
 
         return None
 
