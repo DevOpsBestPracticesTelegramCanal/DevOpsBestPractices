@@ -167,34 +167,45 @@ class CompiledPatterns:
     Компиляция происходит один раз при загрузке модуля.
     """
     
-    # Паттерны типов задач
+    # Паттерны типов задач с Negative Lookahead для предотвращения конфликтов
+    # Порядок проверки: FIX имеет приоритет над CREATE/SEARCH/EDIT
     TASK_PATTERNS_RAW = {
         TaskType.CREATE: [
-            r"(напиши|создай|сделай|реализуй|разработай|генерируй)\s+",
-            r"нужн[аоы]\s+(функци|класс|модуль|скрипт|программ)",
-            r"(хочу|надо|требуется)\s+(написать|создать|сделать)",
-            r"(write|create|make|implement|develop|generate|build)\s+",
-            r"(need|want)\s+(a\s+)?(function|class|module|script)",
-            r"can you (write|create|make|build)",
+            # CREATE срабатывает ТОЛЬКО если нет маркеров FIX (баг, ошибка, issue, traceback, падает)
+            r"(напиши|создай|сделай|реализуй|разработай|генерируй)(?!.*(баг|ошибк|issue|trac|fix|почин|падает|crash|fail))\s+",
+            r"нужн[аоы]\s+(функци|класс|модуль|скрипт|программ)(?!.*(баг|ошибк|падает))",
+            r"(хочу|надо|требуется)\s+(написать|создать|сделать)(?!.*(баг|ошибк|падает))",
+            r"(write|create|make|implement|develop|generate|build)(?!.*(bug|error|issue|fix|crash|fail))\s+",
+            r"(need|want)\s+(a\s+)?(function|class|module|script)(?!.*(bug|error|crash))",
+            r"can you (write|create|make|build)(?!.*(bug|fix|error|crash))",
         ],
         TaskType.EDIT: [
+            # EDIT срабатывает ТОЛЬКО если нет явных маркеров FIX
             # "добавь метод X в класс Y" - edit existing class
-            r"(добавь|вставь|допиши)\s+(метод|функцию|поле|атрибут)\s+\w+\s+(в|к)\s+(класс|файл)",
-            r"(add|insert|append)\s+(method|function|field|attribute)\s+\w+\s+(to|in)\s+(class|file)",
+            r"(добавь|вставь|допиши)(?!.*(баг|ошибк|fix|почин))\s+(метод|функцию|поле|атрибут)\s+\w+\s+(в|к)\s+(класс|файл)",
+            r"(add|insert|append)(?!.*(bug|error|fix))\s+(method|function|field|attribute)\s+\w+\s+(to|in)\s+(class|file)",
+            # "add method to class" - simplified pattern
+            r"add\s+\w+\s+to\s+(class|file)(?!.*(bug|error|fix))",
             # "измени метод X в файле Y"
-            r"(измени|поменяй|обнови|модифицируй)\s+(метод|функцию|класс|код)\s+",
-            r"(change|modify|update|alter)\s+(method|function|class|code)\s+",
+            r"(измени|поменяй|обнови|модифицируй)(?!.*(баг|ошибк|fix))\s+(метод|функцию|класс|код)\s+",
+            r"(change|modify|update|alter)(?!.*(bug|error|fix))\s+(method|function|class|code)\s+",
             # "в файле X добавь Y"
-            r"в\s+(файле?|класс[ае]?|модул[ье])\s+.+\s+(добавь|вставь|измени)",
-            r"in\s+(file|class|module)\s+.+\s+(add|insert|change)",
+            r"в\s+(файле?|класс[ае]?|модул[ье])\s+.+\s+(добавь|вставь|измени)(?!.*(баг|ошибк))",
+            r"in\s+(file|class|module)\s+.+\s+(add|insert|change)(?!.*(bug|error))",
             # "добавь в ConfigValidator метод"
-            r"(добавь|вставь)\s+(в|к)\s+\w+\s+(метод|функцию|поле)",
+            r"(добавь|вставь)(?!.*(баг|ошибк))\s+(в|к)\s+\w+\s+(метод|функцию|поле)",
         ],
         TaskType.FIX: [
+            # FIX - приоритетный тип, ловит все связанное с ошибками
             r"(исправь|почини|поправь|устрани|реши|пофикси)\s*",
             r"(fix|repair|resolve|solve)\s*",
             r"(ошибка|error|exception|bug|не работает|broken|crashes)",
             r"(traceback|exception|NameError|TypeError|ValueError)",
+            # Дополнительные маркеры FIX - падение, краш, сбой
+            r"(падает|падение|упал|crash|fail|failing)",
+            r"(баг|bug)\s*(-|:)?",
+            # "почему падает/не работает" - вопросы о проблемах
+            r"почему\s+(падает|не работает|ошибка|crash)",
         ],
         TaskType.REFACTOR: [
             r"(рефактор|переделай|перепиши|улучши\s+код|переработай)",
@@ -232,15 +243,18 @@ class CompiledPatterns:
             r"(review|check|evaluate)\s*(my|this)?\s*code",
         ],
         TaskType.SEARCH: [
-            r"(найди|поищи|покажи)\s+(все\s+)?(классы|функции|методы|импорты)",
-            r"(find|search|show)\s+(all\s+)?(classes|functions|methods|imports)",
-            r"где\s+(находится|находятся|используется)",
+            # SEARCH срабатывает ТОЛЬКО если нет маркеров FIX (исправь, почини, баг)
+            r"(найди|поищи|покажи)(?!.*(исправь|почини|баг|ошибк|fix|debug))\s+(все\s+)?(классы|функции|методы|импорты)",
+            r"(find|search|show)(?!.*(fix|debug|bug|error))\s+(all\s+)?(classes|functions|methods|imports)",
+            # "find all X functions" - более гибкий паттерн
+            r"find\s+all\s+\w+\s+functions(?!.*(fix|bug|error))",
+            r"где\s+(находится|находятся|используется)(?!.*(ошибк|баг))",
             # Project analysis patterns
             r"(покажи|выведи|отобрази)\s+(описани|docstring|документаци|структур)",
             r"(анализ|обзор|overview)\s+(модул|проект|директор|папк|код)",
             r"(список|list)\s+(модул|файл|класс|функци)",
             r"что\s+(есть|содержит|находится)\s+в\s+",
-            r"(найди|поищи)\s+(все\s+)?(docstring|описани|комментари)",
+            r"(найди|поищи)(?!.*(исправь|почини))\s+(все\s+)?(docstring|описани|комментари)",
             r"(что\s+)?(содержит|внутри)\s+(директор|папк|модул)",
             r"(найди|покажи)\s+(все\s+)?(TODO|FIXME|HACK)",
         ],
