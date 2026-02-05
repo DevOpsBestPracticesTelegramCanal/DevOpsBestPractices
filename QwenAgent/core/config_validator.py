@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Configuration Validator Module"""
 
+import os
 from typing import Dict, List
 import re
 
@@ -27,7 +28,13 @@ class ConfigValidator:
         if 'ollama_url' in self.config:
             if not self.validate_url(self.config['ollama_url']):
                 errors.append('Invalid ollama_url format')
-        
+
+        # Validate project_root exists
+        if 'project_root' in self.config and self.config['project_root']:
+            path = os.path.expanduser(self.config['project_root'])
+            if not os.path.isdir(path):
+                warnings.append(f'Directory does not exist: {path}')
+
         return {'valid': len(errors) == 0, 'errors': errors, 'warnings': warnings}
     
     def validate_url(self, url: str) -> bool:
