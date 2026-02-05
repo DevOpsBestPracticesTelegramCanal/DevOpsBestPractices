@@ -808,7 +808,7 @@ def ensure_ollama_running() -> bool:
         True if Ollama is running (was running or successfully started)
     """
     if is_ollama_running():
-        print("  [OLLAMA] Already running ✓")
+        print("  [OLLAMA] Already running [OK]")
         return True
 
     print("  [OLLAMA] Not running, attempting auto-start...")

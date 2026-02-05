@@ -455,7 +455,7 @@ class PatternRouter:
                     "params": {
                         "pattern": result["pattern"],
                         "path": result["path"],
-                        "glob": result.get("glob", "*.py"),
+                        "include": result.get("glob", "*.py"),  # unified_tools expects "include"
                     },
                     "original": message,
                     "matched_by": "search_translation",

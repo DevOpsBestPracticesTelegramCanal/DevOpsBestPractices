@@ -19,7 +19,10 @@ import json
 
 from .ducs_classifier import DUCSClassifier, classify_task
 from .pattern_router import PatternRouter  # Legacy fallback
-from .bilingual_context_router import BilingualContextRouter  # NEW: Week 1.5 integration
+try:
+    from .bilingual_context_router import BilingualContextRouter  # NEW: Week 1.5 integration
+except ImportError:
+    BilingualContextRouter = None  # Optional module
 from .router import HybridRouter, RouteResult
 from .cot_engine import CoTEngine
 from .tools_extended import execute_tool, EXTENDED_TOOL_REGISTRY
