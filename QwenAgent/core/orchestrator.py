@@ -26,6 +26,7 @@ except ImportError:
 from .router import HybridRouter, RouteResult
 from .cot_engine import CoTEngine
 from .tools_extended import execute_tool, EXTENDED_TOOL_REGISTRY
+from .query_crystallizer import get_crystallizer, TaskType  # Query enhancement
 
 
 class ProcessingTier(Enum):
@@ -300,10 +301,25 @@ class Orchestrator:
                 response="LLM not configured"
             )
 
+        # Crystallize query for enhanced prompt
+        crystallizer = get_crystallizer()
+        crystallized = crystallizer.crystallize(user_input, context)
+
+        # Use optimized prompt with task-specific instructions
+        enhanced_prompt = crystallized.optimized_prompt
+
+        # For EDIT tasks, add explicit tool usage reminder
+        if crystallized.task_type == TaskType.EDIT:
+            enhanced_prompt = f"""IMPORTANT: This is an EDIT task. You MUST use tools!
+
+{enhanced_prompt}
+
+REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
+
         tool_calls = []
         iterations = 0
         max_iterations = 10
-        current_prompt = user_input
+        current_prompt = enhanced_prompt  # Use crystallized prompt
 
         while iterations < max_iterations:
             iterations += 1

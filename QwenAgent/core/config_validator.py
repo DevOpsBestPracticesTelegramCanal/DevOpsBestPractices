@@ -20,7 +20,7 @@ class ConfigValidator:
         
         for field in self.REQUIRED_FIELDS:
             if field not in self.config:
-                errors.append(f'Missing required field: {field}')
+                errors.append(f'Required field not found: {field}')
             elif not self.config[field]:
                 errors.append(f'Empty required field: {field}')
         

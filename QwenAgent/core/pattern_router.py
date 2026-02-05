@@ -228,6 +228,106 @@ class PatternRouter:
                 'glob',
                 self._parse_glob
             ),
+            # Natural language file search: "найди все .py файлы в core/"
+            (
+                re.compile(r'^(?:найди|покажи|выведи)\s+(?:все\s+)?\.?(\w+)\s+файл[ыа]?\s+(?:в\s+)?(.+)$', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": f"**/*.{m.group(1)}", "path": m.group(2).strip().rstrip('/')}
+            ),
+            # "список файлов .py в core/"
+            (
+                re.compile(r'^(?:список|list)\s+(?:файлов?\s+)?\.?(\w+)\s+(?:в\s+)?(.+)$', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": f"**/*.{m.group(1)}", "path": m.group(2).strip().rstrip('/')}
+            ),
+            # "какие файлы в core/"
+            (
+                re.compile(r'^(?:какие|что за)\s+файл[ыа]?\s+(?:есть\s+)?(?:в\s+)?(.+)$', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": "**/*", "path": m.group(1).strip().rstrip('/')}
+            ),
+            # "*.py в core/" or "*.py files in core/"
+            (
+                re.compile(r'^\*\.(\w+)\s+(?:files?\s+)?(?:в|in)\s+(.+)$', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": f"**/*.{m.group(1)}", "path": m.group(2).strip().rstrip('/')}
+            ),
+
+            # =====================================================
+            # PROJECT ANALYSIS (Russian)
+            # =====================================================
+            # "покажи описания модулей в core/" -> grep for docstrings
+            (
+                re.compile(r'^(?:покажи|выведи)\s+(?:описания?|документацию|docstring)\s+(?:всех\s+)?(?:модулей|файлов)\s+(?:в\s+)?(.+)$', re.IGNORECASE),
+                'grep',
+                lambda m: {"pattern": r'^"""', "path": m.group(1).strip().rstrip('/'), "include": "*.py"}
+            ),
+            # "анализ модулей в core/" -> grep for class/def
+            (
+                re.compile(r'^(?:анализ|структура)\s+(?:модулей|кода)\s+(?:в\s+)?(.+)$', re.IGNORECASE),
+                'grep',
+                lambda m: {"pattern": r"^(class |def )", "path": m.group(1).strip().rstrip('/'), "include": "*.py"}
+            ),
+            # "список модулей в core/" -> ls
+            (
+                re.compile(r'^(?:список|покажи)\s+(?:все\s+)?модул(?:и|ей)\s+(?:в\s+)?(.+)$', re.IGNORECASE),
+                'ls',
+                lambda m: {"path": m.group(1).strip()}
+            ),
+            # "что делает модуль X" -> read first 30 lines
+            (
+                re.compile(r'^(?:что\s+делает|опиши)\s+(?:модуль|файл)\s+(.+\.py)$', re.IGNORECASE),
+                'read',
+                lambda m: {"file_path": m.group(1).strip(), "limit": 30}
+            ),
+
+            # =====================================================
+            # EDIT PATTERNS - find class/function location
+            # =====================================================
+            # "добавь метод X в класс Y" -> find class Y first
+            (
+                re.compile(r'^(?:добавь|вставь|допиши)\s+(?:метод|функцию)\s+(\w+)\s+в\s+(?:класс|class)\s+(\w+)', re.IGNORECASE),
+                'grep',
+                lambda m: {"pattern": f"class {m.group(2)}.*:", "include": "*.py", "context_after": 5}
+            ),
+            # "измени класс X" -> find class X
+            (
+                re.compile(r'^(?:измени|обнови|модифицируй)\s+(?:класс|class)\s+(\w+)', re.IGNORECASE),
+                'grep',
+                lambda m: {"pattern": f"class {m.group(1)}.*:", "include": "*.py", "context_after": 10}
+            ),
+            # "найди класс X" -> grep for class definition
+            (
+                re.compile(r'^(?:найди|покажи|где)\s+(?:класс|class)\s+(\w+)', re.IGNORECASE),
+                'grep',
+                lambda m: {"pattern": f"class {m.group(1)}.*:", "include": "*.py", "context_after": 5}
+            ),
+            # "покажи метод X в классе Y" или "покажи метод X"
+            (
+                re.compile(r'^(?:покажи|найди)\s+(?:метод|функцию|def)\s+(\w+)(?:\s+в\s+(?:классе?|class)\s+(\w+))?', re.IGNORECASE),
+                'grep',
+                lambda m: {"pattern": f"def {m.group(1)}\\(", "include": "*.py", "context_after": 10}
+            ),
+
+            # "wc -l file" or "wc file" -> line count
+            (
+                re.compile(r'^wc\s+(?:-l\s+)?(.+)$', re.IGNORECASE),
+                'bash',
+                lambda m: {"command": f"powershell -Command \"(Get-Content '{m.group(1).strip()}' | Measure-Object -Line).Lines\""}
+            ),
+            # "count lines in file" or "lines in file"
+            (
+                re.compile(r'^(?:count\s+)?lines?\s+(?:in\s+)?(.+)$', re.IGNORECASE),
+                'bash',
+                lambda m: {"command": f"powershell -Command \"(Get-Content '{m.group(1).strip()}' | Measure-Object -Line).Lines\""}
+            ),
+            # "размер файла X" -> file size
+            (
+                re.compile(r'^(?:размер|size)\s+(?:файла?\s+)?(.+)$', re.IGNORECASE),
+                'bash',
+                lambda m: {"command": f"ls -lh \"{m.group(1).strip()}\"" if os.name != 'nt' else f"dir \"{m.group(1).strip()}\""}
+            ),
+
             # PWD
             (
                 re.compile(r'^pwd$', re.IGNORECASE),
@@ -330,11 +430,53 @@ class PatternRouter:
                 'write',
                 self._parse_write
             ),
-            # RUSSIAN WRITE: "создай файл file.py с функцией ..."
+            # RUSSIAN WRITE: "создай файл file.py с функцией func_name которая ..."
             (
-                re.compile(r'^(?:создай|напиши)\s+(?:файл\s+)?([^\s]+)\s+с\s+(?:функцией|классом|кодом)\s+(.+)$', re.IGNORECASE | re.DOTALL),
+                re.compile(r'^(?:создай|напиши)\s+(?:файл\s+)?([^\s]+\.py)\s+с\s+функцией\s+(\w+)\s+котор\S+\s+(.+)$', re.IGNORECASE | re.DOTALL),
                 'write',
-                lambda m: {"file_path": m.group(1), "content": m.group(2)}
+                lambda m: {
+                    "file_path": m.group(1),
+                    "content": f'''# -*- coding: utf-8 -*-
+"""Module with {m.group(2)} function."""
+
+
+def {m.group(2)}(text: str) -> str:
+    """
+    {m.group(3).strip().rstrip('.')}.
+
+    Args:
+        text: Input text to process
+
+    Returns:
+        Processed text
+    """
+    # TODO: Implement {m.group(2)}
+    return text.title()  # Basic implementation
+'''
+                }
+            ),
+            # RUSSIAN WRITE: "создай файл file.py с классом ClassName"
+            (
+                re.compile(r'^(?:создай|напиши)\s+(?:файл\s+)?([^\s]+\.py)\s+с\s+классом\s+(\w+)', re.IGNORECASE),
+                'write',
+                lambda m: {
+                    "file_path": m.group(1),
+                    "content": f'''# -*- coding: utf-8 -*-
+"""Module with {m.group(2)} class."""
+
+
+class {m.group(2)}:
+    """
+    {m.group(2)} class.
+
+    TODO: Add description
+    """
+
+    def __init__(self):
+        """Initialize {m.group(2)}."""
+        pass
+'''
+                }
             ),
             # EDIT с диапазоном строк
             (

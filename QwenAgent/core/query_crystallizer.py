@@ -49,6 +49,7 @@ from datetime import datetime
 class TaskType(Enum):
     """Тип задачи программирования."""
     CREATE = "create"
+    EDIT = "edit"          # NEW: Edit existing file/class/function
     FIX = "fix"
     REFACTOR = "refactor"
     EXPLAIN = "explain"
@@ -169,12 +170,25 @@ class CompiledPatterns:
     # Паттерны типов задач
     TASK_PATTERNS_RAW = {
         TaskType.CREATE: [
-            r"(напиши|создай|сделай|реализуй|разработай|добавь|генерируй)\s+",
+            r"(напиши|создай|сделай|реализуй|разработай|генерируй)\s+",
             r"нужн[аоы]\s+(функци|класс|модуль|скрипт|программ)",
             r"(хочу|надо|требуется)\s+(написать|создать|сделать)",
-            r"(write|create|make|implement|develop|generate|add|build)\s+",
+            r"(write|create|make|implement|develop|generate|build)\s+",
             r"(need|want)\s+(a\s+)?(function|class|module|script)",
             r"can you (write|create|make|build)",
+        ],
+        TaskType.EDIT: [
+            # "добавь метод X в класс Y" - edit existing class
+            r"(добавь|вставь|допиши)\s+(метод|функцию|поле|атрибут)\s+\w+\s+(в|к)\s+(класс|файл)",
+            r"(add|insert|append)\s+(method|function|field|attribute)\s+\w+\s+(to|in)\s+(class|file)",
+            # "измени метод X в файле Y"
+            r"(измени|поменяй|обнови|модифицируй)\s+(метод|функцию|класс|код)\s+",
+            r"(change|modify|update|alter)\s+(method|function|class|code)\s+",
+            # "в файле X добавь Y"
+            r"в\s+(файле?|класс[ае]?|модул[ье])\s+.+\s+(добавь|вставь|измени)",
+            r"in\s+(file|class|module)\s+.+\s+(add|insert|change)",
+            # "добавь в ConfigValidator метод"
+            r"(добавь|вставь)\s+(в|к)\s+\w+\s+(метод|функцию|поле)",
         ],
         TaskType.FIX: [
             r"(исправь|почини|поправь|устрани|реши|пофикси)\s*",
@@ -221,6 +235,14 @@ class CompiledPatterns:
             r"(найди|поищи|покажи)\s+(все\s+)?(классы|функции|методы|импорты)",
             r"(find|search|show)\s+(all\s+)?(classes|functions|methods|imports)",
             r"где\s+(находится|находятся|используется)",
+            # Project analysis patterns
+            r"(покажи|выведи|отобрази)\s+(описани|docstring|документаци|структур)",
+            r"(анализ|обзор|overview)\s+(модул|проект|директор|папк|код)",
+            r"(список|list)\s+(модул|файл|класс|функци)",
+            r"что\s+(есть|содержит|находится)\s+в\s+",
+            r"(найди|поищи)\s+(все\s+)?(docstring|описани|комментари)",
+            r"(что\s+)?(содержит|внутри)\s+(директор|папк|модул)",
+            r"(найди|покажи)\s+(все\s+)?(TODO|FIXME|HACK)",
         ],
     }
     
@@ -272,6 +294,28 @@ class CompiledPatterns:
         (["exception", "исключени", "raise"], r"(raise \w+|except \w+)", "exception handling"),
         (["тест", "test"], r"def test_\w+\(", "test functions"),
         (["константа", "constant", "UPPER"], r"^[A-Z][A-Z_0-9]+ =", "constants"),
+
+        # Project analysis patterns
+        (["описани", "docstring", "документаци", "описания модул", "докстринг"],
+         r'^"""', "module docstrings"),
+        (["структур", "анализ модул", "обзор", "overview", "анализ код"],
+         r"^(class |def |async def )", "code structure"),
+        (["глобальн", "global", "переменн"],
+         r"^[a-z_][a-z_0-9]+ =", "global variables"),
+        (["__init__", "конструктор", "инициализ"],
+         r"def __init__\(", "constructors"),
+        (["property", "свойств", "getter", "setter"],
+         r"@property|\.setter", "properties"),
+        (["staticmethod", "classmethod", "статическ"],
+         r"@(staticmethod|classmethod)", "static/class methods"),
+        (["dataclass", "датакласс", "pydantic"],
+         r"@dataclass|class \w+\(BaseModel\)", "dataclasses"),
+        (["типы", "type", "typing", "аннотаци"],
+         r"(: [A-Z]\w+|-> [A-Z]\w+|\[.+\])", "type annotations"),
+        (["список модул", "list of module", "модули в"],
+         r"^(class |def )", "module listing"),
+        (["содержит", "contains", "что есть в", "что внутри"],
+         r"^(class |def |import )", "directory contents"),
     ]
     
     def __init__(self):
@@ -530,6 +574,7 @@ class RegexCrystallizer:
         """Создать objective на EN."""
         verbs = {
             TaskType.CREATE: "Create",
+            TaskType.EDIT: "Edit",
             TaskType.FIX: "Fix",
             TaskType.REFACTOR: "Refactor",
             TaskType.EXPLAIN: "Explain",
@@ -565,6 +610,7 @@ class RegexCrystallizer:
         """Создать objective на RU."""
         verbs = {
             TaskType.CREATE: "Создать",
+            TaskType.EDIT: "Изменить",
             TaskType.FIX: "Исправить",
             TaskType.REFACTOR: "Рефакторить",
             TaskType.EXPLAIN: "Объяснить",
@@ -812,6 +858,24 @@ Search for the specified pattern and show:
 1. File locations
 2. Matching lines
 3. Context around matches""",
+
+        TaskType.EDIT: """## Task: {objective}
+
+### Requirements
+{requirements}
+{constraints}
+
+### CRITICAL INSTRUCTIONS - USE TOOLS!
+You MUST use tools to complete this task:
+
+1. **READ** the target file first to understand its structure
+2. **FIND** the exact location where to make changes
+3. **EDIT** the file using the edit tool with old_string/new_string
+4. **VERIFY** the change was applied correctly
+
+DO NOT just generate example code!
+You have access to: read, edit, grep, glob tools.
+USE THEM to modify the actual file.""",
     }
     
     def build(self, result: CrystallizedQuery) -> str:
@@ -1130,7 +1194,7 @@ def test_hybrid_crystallizer():
     
     crystallizer = HybridCrystallizer()
     
-    print(f"\nFuzzy: {'✅' if crystallizer.fuzzy_crystallizer.is_available else '❌'}")
+    print(f"\nFuzzy: {'[OK]' if crystallizer.fuzzy_crystallizer.is_available else '[NO]'}")
     print(f"Cache size: {crystallizer.CACHE_SIZE}")
     
     tests = [
