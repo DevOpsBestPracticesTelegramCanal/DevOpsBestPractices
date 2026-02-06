@@ -58,6 +58,9 @@ from .static_analyzer import StaticAnalyzer
 # Phase 6: Query Modifier Engine
 from .query_modifier import QueryModifierEngine, ModifierCommands
 
+# Week 2: Working Memory for multi-step tasks
+from .working_memory import WorkingMemory
+
 
 @dataclass
 class QwenCodeConfig:
@@ -458,6 +461,9 @@ I already read {file_path} for you. Here is the EXACT file content (use these ex
 Now use [TOOL: edit(file_path="{file_path}", old_string="...", new_string="...")] to make the changes.
 IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line numbers."""
 
+        # Week 2: Working Memory for multi-step context retention
+        memory = WorkingMemory(goal=user_input)
+
         # Agentic loop - iterate until done or max iterations
         iteration = 0
         current_prompt = prompt
@@ -550,8 +556,11 @@ Task: {user_input}"""
                 })
                 tool_results.append((tool_name, tool_result))
 
-            # Build continuation prompt with tool results
-            current_prompt = self._build_continuation_prompt(tool_results)
+                # Week 2: Update working memory with each tool result
+                memory.update_from_tool_result(tool_name, params, tool_result)
+
+            # Build continuation prompt with tool results and working memory
+            current_prompt = self._build_continuation_prompt(tool_results, memory=memory)
 
         # Parse thinking if CoT mode
         if self.config.deep_mode:
@@ -792,6 +801,9 @@ I already read {file_path} for you. Here is the EXACT file content (use these ex
 Now use [TOOL: edit(file_path="{file_path}", old_string="...", new_string="...")] to make the changes.
 IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line numbers."""
 
+        # Week 2: Working Memory for multi-step context retention
+        memory = WorkingMemory(goal=user_input)
+
         # Agentic loop
         iteration = 0
         current_prompt = prompt
@@ -862,7 +874,10 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
                 yield {"event": "tool_result", "tool": tool_name, "params": params, "result": tool_result}
                 tool_results.append((tool_name, tool_result))
 
-            current_prompt = self._build_continuation_prompt(tool_results)
+                # Week 2: Update working memory with each tool result
+                memory.update_from_tool_result(tool_name, params, tool_result)
+
+            current_prompt = self._build_continuation_prompt(tool_results, memory=memory)
 
         # Store in history
         self.conversation_history.append({"role": "user", "content": user_input})
@@ -1121,9 +1136,17 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
         except Exception:
             return value
 
-    def _build_continuation_prompt(self, tool_results: List[Tuple[str, Dict]]) -> str:
-        """Build prompt with tool results for continuation"""
-        lines = ["Tool results:"]
+    def _build_continuation_prompt(self, tool_results: List[Tuple[str, Dict]],
+                                    memory: 'WorkingMemory' = None) -> str:
+        """Build prompt with tool results and working memory for continuation."""
+        lines = []
+
+        # Week 2: Inject working memory context first
+        if memory:
+            lines.append(memory.compact())
+            lines.append("")
+
+        lines.append("Tool results:")
         for tool_name, result in tool_results:
             lines.append(f"\n[{tool_name}]:")
             if result.get("success"):

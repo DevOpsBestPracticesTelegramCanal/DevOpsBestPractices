@@ -27,6 +27,7 @@ from .router import HybridRouter, RouteResult
 from .cot_engine import CoTEngine
 from .tools_extended import execute_tool, EXTENDED_TOOL_REGISTRY
 from .query_crystallizer import get_crystallizer, TaskType  # Query enhancement
+from .working_memory import WorkingMemory  # Week 2: multi-step context
 
 # Multi-Candidate Generation (Week 2)
 try:
@@ -376,6 +377,9 @@ class Orchestrator:
 
 REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
 
+        # Week 2: Working Memory for multi-step context retention
+        memory = WorkingMemory(goal=user_input)
+
         tool_calls = []
         iterations = 0
         max_iterations = 10
@@ -402,9 +406,10 @@ REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
                     "params": params,
                     "result": result
                 })
+                memory.update_from_tool_result(tool_name, params, result)
 
-            # Build continuation
-            current_prompt = self._build_continuation(tool_calls[-len(parsed_tools):])
+            # Build continuation with working memory
+            current_prompt = self._build_continuation(tool_calls[-len(parsed_tools):], memory=memory)
 
         return ProcessingResult(
             tier=ProcessingTier.TIER4_AUTONOMOUS,
@@ -532,6 +537,9 @@ REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
 
 REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
 
+        # Week 2: Working Memory
+        memory = WorkingMemory(goal=user_input)
+
         tool_calls = []
         iterations = 0
         max_iterations = 10
@@ -549,7 +557,8 @@ REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
                 tool_calls.append({
                     "tool": tool_name, "params": params, "result": result
                 })
-            current_prompt = self._build_continuation(tool_calls[-len(parsed_tools):])
+                memory.update_from_tool_result(tool_name, params, result)
+            current_prompt = self._build_continuation(tool_calls[-len(parsed_tools):], memory=memory)
 
         return ProcessingResult(
             tier=ProcessingTier.TIER4_AUTONOMOUS,
@@ -645,9 +654,17 @@ Provide corrected response:
 
         return params
 
-    def _build_continuation(self, recent_tools: List[Dict]) -> str:
-        """Build continuation prompt"""
-        lines = ["Tool results:"]
+    def _build_continuation(self, recent_tools: List[Dict],
+                             memory: 'WorkingMemory' = None) -> str:
+        """Build continuation prompt with optional working memory."""
+        lines = []
+
+        # Week 2: Inject working memory context first
+        if memory:
+            lines.append(memory.compact())
+            lines.append("")
+
+        lines.append("Tool results:")
         for tc in recent_tools:
             lines.append(f"\n[{tc['tool']}]: {json.dumps(tc['result'], default=str)[:1000]}")
         lines.append("\nContinue with next action or provide final answer.")
