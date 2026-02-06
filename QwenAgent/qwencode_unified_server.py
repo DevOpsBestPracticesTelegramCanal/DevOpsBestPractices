@@ -382,6 +382,20 @@ tools = UnifiedTools(project_root=config.project_root)
 router = get_router()  # SINGLETON: использовать единый экземпляр
 print(f"[SINGLETON] PatternRouter with {len(router.patterns)} patterns")
 
+# Phase 6: Query Modifier Engine
+try:
+    from core.query_modifier import QueryModifierEngine, ModifierCommands
+    query_modifier = QueryModifierEngine()
+    query_modifier.set_language("ru")
+    modifier_commands = ModifierCommands(query_modifier)
+    HAS_QUERY_MODIFIER = True
+    print(f"[QUERY MODIFIER] Loaded: lang={query_modifier.language}, {len(query_modifier.modifiers)} modifiers")
+except ImportError:
+    HAS_QUERY_MODIFIER = False
+    query_modifier = None
+    modifier_commands = None
+    print("[QUERY MODIFIER] Not available")
+
 # Approval Manager for Human-in-the-Loop
 approval_manager = None
 pending_approval_events = {}  # request_id → SSE event queue
@@ -452,6 +466,24 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
 
     print(f"\n[CHAT] Input: {message[:100]}...")
+
+    # 0. Query Modifier: handle commands and apply modifiers
+    if HAS_QUERY_MODIFIER:
+        cmd_response = modifier_commands.handle(message)
+        if cmd_response:
+            return jsonify({
+                "success": True,
+                "response": cmd_response,
+                "tool_calls": [],
+                "route_method": "modifier_command",
+                "mode": "fast",
+                "mode_icon": "[FAST]"
+            })
+
+        modified = query_modifier.process(message)
+        if modified != message:
+            print(f"[MODIFIER] '{message[:40]}' -> '{modified[:60]}'")
+            message = modified
 
     # 1. Try Fast Path (PatternRouter)
     route = router.match(message)
@@ -533,6 +565,24 @@ def chat_stream():
 
     print(f"\n{'='*60}")
     print(f"[STREAM] Input: {message[:100]}...")
+
+    # Query Modifier: handle commands before streaming
+    if HAS_QUERY_MODIFIER:
+        cmd_response = modifier_commands.handle(message)
+        if cmd_response:
+            return jsonify({
+                "success": True,
+                "response": cmd_response,
+                "tool_calls": [],
+                "route_method": "modifier_command",
+                "mode": "fast",
+                "mode_icon": "[FAST]"
+            })
+
+        modified = query_modifier.process(message)
+        if modified != message:
+            print(f"[MODIFIER] '{message[:40]}' -> '{modified[:60]}'")
+            message = modified
 
     def generate():
         global _stats, _last_debug

@@ -51,6 +51,9 @@ from .no_llm_responder import NoLLMResponder, NoLLMResponse, ResponseType
 from .solution_cache import SolutionCache
 from .static_analyzer import StaticAnalyzer
 
+# Phase 6: Query Modifier Engine
+from .query_modifier import QueryModifierEngine, ModifierCommands
+
 
 @dataclass
 class QwenCodeConfig:
@@ -172,6 +175,13 @@ Current working directory: {working_dir}
         self.no_llm_responder = NoLLMResponder(solution_cache=self.solution_cache)
         self.static_analyzer = StaticAnalyzer(use_ruff=True)
 
+        # Phase 6: Query Modifier Engine
+        self.query_modifier = QueryModifierEngine()
+        self.query_modifier.set_language("ru")
+        if self.user_prefs:
+            self.query_modifier.load_from_config(self.user_prefs.__dict__)
+        self.modifier_commands = ModifierCommands(self.query_modifier)
+
         # Deep6 Minsky engine (full 6-step CoT with iterative rollback)
         self.deep6_engine = Deep6Minsky(
             fast_model=getattr(config, 'fast_model', None) if config else None,
@@ -213,7 +223,9 @@ Current working directory: {working_dir}
             # Phase 5: No-LLM optimization tracking
             "no_llm_responses": 0,
             "cache_hits": 0,
-            "static_analysis_fixes": 0
+            "static_analysis_fixes": 0,
+            # Phase 6: Query Modifier tracking
+            "query_modifications": 0,
         }
 
         # Mode tracking
@@ -238,6 +250,20 @@ Current working directory: {working_dir}
             "iterations": 0,
             "plan_mode": self.plan_mode.is_active
         }
+
+        # STEP -2: Modifier commands (/lang, /modifiers, /russian, /brief)
+        modifier_response = self.modifier_commands.handle(user_input)
+        if modifier_response:
+            result["response"] = modifier_response
+            result["route_method"] = "modifier_command"
+            return result
+
+        # STEP -1: Apply query modifiers (language suffix, auto-prefixes)
+        original_input = user_input
+        user_input = self.query_modifier.process(user_input)
+        if user_input != original_input:
+            self.stats["query_modifications"] += 1
+            print(f"[MODIFIER] '{original_input[:40]}' -> '{user_input[:60]}'")
 
         # Check for special commands
         special = self._handle_special_commands(user_input)
@@ -1292,6 +1318,14 @@ DEEP6 MINSKY (6-step cognitive pipeline):
 5. SELF-CONSTRUCTIVE - Code synthesis
 6. VALUES/IDEALS  - Final verification
 
+QUERY MODIFIERS:
+/lang ru          - Answer in Russian (default)
+/lang en          - Answer in English
+/lang auto        - Auto-detect language
+/russian on/off   - Toggle auto-Russian
+/brief on/off     - Toggle code-only replies
+/modifiers        - List all modifiers
+
 ESCALATION:
 FAST -> DEEP3 -> DEEP6 -> SEARCH
 """
@@ -2220,6 +2254,28 @@ Please analyze the above query using the web search results (if available) and p
         # Убрать префиксы режимов
         clean_input = self.strip_mode_prefix(user_input)
         print(f"[DEBUG process_with_mode] Clean input: {clean_input[:50]}...")
+
+        # Modifier commands (/lang, /modifiers, etc.)
+        modifier_response = self.modifier_commands.handle(clean_input)
+        if modifier_response:
+            return {
+                "success": True,
+                "response": modifier_response,
+                "mode": self.current_mode.value,
+                "mode_icon": self.current_mode.icon,
+                "tool_calls": [],
+                "thinking": [],
+                "route_method": "modifier_command",
+                "iterations": 0,
+                "plan_mode": self.plan_mode.is_active
+            }
+
+        # Apply query modifiers (language suffix, auto-prefixes)
+        original_clean = clean_input
+        clean_input = self.query_modifier.process(clean_input)
+        if clean_input != original_clean:
+            self.stats["query_modifications"] += 1
+            print(f"[MODIFIER] '{original_clean[:40]}' -> '{clean_input[:60]}'")
 
         # ALWAYS check special commands first (before mode-specific handling)
         special = self._handle_special_commands(clean_input)
