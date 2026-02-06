@@ -28,6 +28,14 @@ from .cot_engine import CoTEngine
 from .tools_extended import execute_tool, EXTENDED_TOOL_REGISTRY
 from .query_crystallizer import get_crystallizer, TaskType  # Query enhancement
 
+# Multi-Candidate Generation (Week 2)
+try:
+    from .generation.pipeline import MultiCandidatePipeline, PipelineConfig, PipelineResult
+    from .generation.llm_adapter import AsyncLLMAdapter
+    MULTI_CANDIDATE_AVAILABLE = True
+except ImportError:
+    MULTI_CANDIDATE_AVAILABLE = False
+
 
 class ProcessingTier(Enum):
     """Уровни обработки запросов"""
@@ -66,13 +74,17 @@ class Orchestrator:
     ЦЕЛЬ: Максимум без LLM, LLM только когда необходимо!
     """
 
-    def __init__(self, llm_client=None, use_bilingual_router=True):
+    def __init__(self, llm_client=None, use_bilingual_router=True,
+                 enable_multi_candidate=True, multi_candidate_model=None):
         """
         Args:
             llm_client: LLM client для Tier 2+
             use_bilingual_router: Использовать BilingualContextRouter (Week 1.5)
                                   True = новый роутер (RU+EN+Context+Tier1.5)
                                   False = старый PatternRouter (обратная совместимость)
+            enable_multi_candidate: Enable Multi-Candidate generation (Week 2)
+            multi_candidate_model: Model for multi-candidate generation
+                                   (default: same as llm_client model)
         """
         # Компоненты
         if use_bilingual_router:
@@ -89,6 +101,11 @@ class Orchestrator:
         self.cot_engine = CoTEngine()
         self.llm_client = llm_client
 
+        # Multi-Candidate Pipeline (Week 2)
+        self.multi_candidate_pipeline = None
+        if enable_multi_candidate and MULTI_CANDIDATE_AVAILABLE and llm_client:
+            self._init_multi_candidate(llm_client, multi_candidate_model)
+
         # Статистика
         self.stats = {
             "total_requests": 0,
@@ -98,6 +115,7 @@ class Orchestrator:
             "tier2_simple_llm": 0,
             "tier3_cot": 0,
             "tier4_autonomous": 0,
+            "tier4_multi_candidate": 0,  # NEW: Multi-Candidate code generation
             "self_corrections": 0,
             "no_llm_rate": 0.0,
             "light_llm_rate": 0.0    # NEW: Tier 1.5 rate
@@ -105,6 +123,40 @@ class Orchestrator:
 
         # DUCS Templates - шаблоны ответов без LLM
         self.ducs_templates = self._load_ducs_templates()
+
+    def _init_multi_candidate(self, llm_client, model=None):
+        """Initialize Multi-Candidate Pipeline."""
+        try:
+            # Detect model name from client
+            model_name = model
+            if not model_name:
+                if hasattr(llm_client, '_model'):
+                    model_name = llm_client._model
+                elif hasattr(llm_client, 'model'):
+                    model_name = llm_client.model
+                else:
+                    model_name = "qwen2.5-coder:7b"
+
+            # Get underlying async client if possible
+            if hasattr(llm_client, '_async_client'):
+                adapter = AsyncLLMAdapter(llm_client._async_client, model=model_name)
+            else:
+                adapter = AsyncLLMAdapter(llm_client, model=model_name)
+
+            self.multi_candidate_pipeline = MultiCandidatePipeline(
+                llm=adapter,
+                config=PipelineConfig(
+                    n_candidates=3,
+                    parallel_generation=True,
+                    fail_fast_validation=True,
+                ),
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[Orchestrator] Multi-Candidate init failed: %s", e
+            )
+            self.multi_candidate_pipeline = None
 
     def process(self, user_input: str, context: Dict[str, Any] = None) -> ProcessingResult:
         """
@@ -305,6 +357,14 @@ class Orchestrator:
         crystallizer = get_crystallizer()
         crystallized = crystallizer.crystallize(user_input, context)
 
+        # --- Multi-Candidate path for code generation tasks ---
+        if (
+            self.multi_candidate_pipeline
+            and self._is_code_generation_task(user_input, crystallized)
+        ):
+            return self._process_multi_candidate(user_input, crystallized, context)
+
+        # --- Standard tool-loop path ---
         # Use optimized prompt with task-specific instructions
         enhanced_prompt = crystallized.optimized_prompt
 
@@ -351,6 +411,151 @@ REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
             response=response,
             tool_calls=tool_calls,
             iterations=iterations
+        )
+
+    def _is_code_generation_task(self, user_input: str, crystallized=None) -> bool:
+        """
+        Detect if task is a pure code generation request
+        (vs tool-based file editing or information retrieval).
+
+        Multi-Candidate is best for:
+        - "Write a function..."
+        - "Create a class..."
+        - "Implement..."
+        - "Generate code for..."
+
+        NOT for:
+        - "Read file X" (tool task)
+        - "Edit line 5 in foo.py" (tool task)
+        - "Explain this code" (not code generation)
+        """
+        if crystallized and crystallized.task_type == TaskType.EDIT:
+            return False  # EDIT tasks need tools, not multi-candidate
+
+        input_lower = user_input.lower()
+
+        code_gen_indicators = [
+            "write a function", "write a class", "write code",
+            "create a function", "create a class", "create a script",
+            "implement", "generate code", "generate a",
+            "write python", "write dockerfile", "write yaml",
+            "напиши функцию", "напиши код", "создай функцию",
+            "создай класс", "реализуй", "сгенерируй",
+        ]
+
+        # Must match at least one indicator
+        if not any(ind in input_lower for ind in code_gen_indicators):
+            return False
+
+        # Must NOT reference specific files (that's an edit/read task)
+        file_indicators = [
+            "file ", "файл ", ".py ", ".yaml ", ".json ",
+            "edit ", "modify ", "change ", "fix in ",
+        ]
+        if any(ind in input_lower for ind in file_indicators):
+            return False
+
+        return True
+
+    def _process_multi_candidate(
+        self, user_input: str, crystallized, context: Dict = None
+    ) -> ProcessingResult:
+        """
+        Multi-Candidate code generation path.
+
+        Generates N code variants, validates each, selects the best.
+        """
+        # Build DUCS context if available
+        classification = self.ducs.classify(user_input)
+        swecas_code = None
+        if classification.get("confidence", 0) >= 0.5:
+            ducs_code_str = classification.get("ducs_code", "")
+            try:
+                swecas_code = int(ducs_code_str.split(".")[0]) if ducs_code_str else None
+            except (ValueError, IndexError):
+                pass
+
+        try:
+            result = self.multi_candidate_pipeline.run_sync(
+                task_id=f"tier4_{self.stats['total_requests']}",
+                query=crystallized.optimized_prompt,
+                swecas_code=swecas_code,
+            )
+
+            self.stats["tier4_multi_candidate"] += 1
+
+            # Format response
+            summary = result.summary()
+            response_parts = [result.code]
+
+            if result.best and not result.all_passed:
+                errors = []
+                for vs in result.best.validation_scores:
+                    if not vs.passed:
+                        errors.extend(vs.errors[:2])
+                if errors:
+                    response_parts.append(
+                        "\n\n⚠️ Validation warnings:\n"
+                        + "\n".join(f"  - {e}" for e in errors[:5])
+                    )
+
+            return ProcessingResult(
+                tier=ProcessingTier.TIER4_AUTONOMOUS,
+                response="\n".join(response_parts),
+                tool_calls=[{
+                    "tool": "multi_candidate_pipeline",
+                    "params": {"n_candidates": summary["candidates_generated"]},
+                    "result": summary,
+                }],
+                confidence=result.score,
+                ducs_code=str(swecas_code) if swecas_code else None,
+            )
+
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                "[Orchestrator] Multi-Candidate failed, falling back: %s", e
+            )
+            # Fallback to standard tool-loop
+            return self._process_tier4_tool_loop(user_input, crystallized, context)
+
+    def _process_tier4_tool_loop(
+        self, user_input: str, crystallized, context: Dict = None
+    ) -> ProcessingResult:
+        """Standard Tier 4 tool-loop path (fallback from multi-candidate)."""
+        enhanced_prompt = crystallized.optimized_prompt
+
+        if crystallized.task_type == TaskType.EDIT:
+            enhanced_prompt = f"""IMPORTANT: This is an EDIT task. You MUST use tools!
+
+{enhanced_prompt}
+
+REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
+
+        tool_calls = []
+        iterations = 0
+        max_iterations = 10
+        current_prompt = enhanced_prompt
+        response = ""
+
+        while iterations < max_iterations:
+            iterations += 1
+            response = self.llm_client(current_prompt)
+            parsed_tools = self._parse_tool_calls(response)
+            if not parsed_tools:
+                break
+            for tool_name, params in parsed_tools:
+                result = execute_tool(tool_name, **params)
+                tool_calls.append({
+                    "tool": tool_name, "params": params, "result": result
+                })
+            current_prompt = self._build_continuation(tool_calls[-len(parsed_tools):])
+
+        return ProcessingResult(
+            tier=ProcessingTier.TIER4_AUTONOMOUS,
+            response=response,
+            tool_calls=tool_calls,
+            iterations=iterations,
         )
 
     def _assess_complexity(self, user_input: str) -> str:
@@ -525,12 +730,13 @@ Provide corrected response:
     def get_stats(self) -> Dict[str, Any]:
         """Get orchestrator statistics
 
-        UPDATED 2026-02-04 (Week 1.5):
-        - Includes BilingualContextRouter stats if enabled
+        UPDATED 2026-02-04 (Week 1.5): BilingualContextRouter stats
+        UPDATED 2026-02-06 (Week 2): Multi-Candidate stats
         """
         stats_dict = {
             **self.stats,
-            "ducs_stats": self.ducs.get_stats()
+            "ducs_stats": self.ducs.get_stats(),
+            "multi_candidate_available": self.multi_candidate_pipeline is not None,
         }
 
         # Add BilingualContextRouter stats if enabled

@@ -100,7 +100,8 @@ class TimeoutLLMClient:
         prompt: str,
         model: str,
         timeout_override: TimeoutConfig = None,
-        system_prompt: str = None
+        system_prompt: str = None,
+        options: dict = None
     ) -> str:
         """
         Синхронная генерация с полным мониторингом.
@@ -110,6 +111,7 @@ class TimeoutLLMClient:
             model: Имя модели Ollama
             timeout_override: Переопределение таймаутов
             system_prompt: Системный промпт (опционально)
+            options: Ollama generation options (temperature, seed, etc.)
 
         Returns:
             Полный ответ модели
@@ -126,7 +128,8 @@ class TimeoutLLMClient:
         loop = self._get_loop()
         return loop.run_until_complete(
             self._async_client.generate(
-                prompt, model, timeout_override, system_prompt
+                prompt, model, timeout_override, system_prompt,
+                options=options
             )
         )
 

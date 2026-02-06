@@ -196,7 +196,8 @@ class StreamingLLMClient:
         model: str,
         timeout_override: Optional[TimeoutConfig] = None,
         on_state_change: Optional[Callable[[GenerationState, GenerationMetrics], None]] = None,
-        system_prompt: str = None
+        system_prompt: str = None,
+        options: Optional[Dict[str, Any]] = None
     ) -> AsyncIterator[str]:
         """
         Генерация со стримингом и мониторингом активности.
@@ -207,6 +208,7 @@ class StreamingLLMClient:
             timeout_override: Переопределение таймаутов для этого вызова
             on_state_change: Callback при смене состояния (для UI)
             system_prompt: Системный промпт (опционально)
+            options: Ollama generation options (temperature, seed, etc.)
 
         Yields:
             Токены по мере генерации
@@ -234,6 +236,8 @@ class StreamingLLMClient:
         }
         if system_prompt:
             request_body["system"] = system_prompt
+        if options:
+            request_body["options"] = options
 
         try:
             timeout = aiohttp.ClientTimeout(
@@ -360,7 +364,8 @@ class StreamingLLMClient:
         prompt: str,
         model: str,
         timeout_override: Optional[TimeoutConfig] = None,
-        system_prompt: str = None
+        system_prompt: str = None,
+        options: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Асинхронная генерация без стриминга (собирает весь ответ).
@@ -370,7 +375,8 @@ class StreamingLLMClient:
         """
         result = []
         async for token in self.generate_stream(
-            prompt, model, timeout_override, system_prompt=system_prompt
+            prompt, model, timeout_override, system_prompt=system_prompt,
+            options=options
         ):
             result.append(token)
         return "".join(result)

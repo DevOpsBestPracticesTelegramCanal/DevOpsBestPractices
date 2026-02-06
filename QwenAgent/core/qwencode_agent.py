@@ -19,7 +19,11 @@ from .plan_mode import PlanMode
 from .subagent import SubAgentManager, TaskTracker, TaskTool
 from .ducs_classifier import DUCSClassifier
 from .swecas_classifier import SWECASClassifier
-from .deep6_minsky import Deep6Minsky, Deep6Result  # Full 6-step Minsky CoT
+try:
+    from .deep6_minsky import Deep6Minsky, Deep6Result  # Full 6-step Minsky CoT
+except ImportError:
+    Deep6Minsky = None
+    Deep6Result = None
 
 # CANONICAL ExecutionMode - единственное определение в проекте
 from .execution_mode import ExecutionMode, ESCALATION_CHAIN, normalize_mode
