@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Pattern Discovery Report</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; background: #f0f0f0; }
+        h1 { color: #333; }
+        .stats { display: flex; gap: 20px; margin: 20px 0; }
+        .stat { background: white; padding: 15px 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stat h3 { margin: 0; color: #666; font-size: 14px; }
+        .stat .val { font-size: 28px; font-weight: bold; color: #333; }
+        .buttons { margin: 20px 0; }
+        .btn { padding: 8px 16px; margin: 4px; border: none; border-radius: 4px; cursor: pointer; background: #ddd; }
+        .btn:hover { background: #3498db; color: white; }
+        .section { display: none; }
+        .section.active { display: block; }
+        .card { background: white; margin: 10px 0; padding: 12px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; 
+                  background: #3498db; color: white; margin-right: 8px; }
+        .examples { margin-top: 8px; color: #666; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>Pattern Discovery Report</h1>
+    <div class="stats">
+        <div class="stat"><h3>Total Patterns</h3><div class="val">64</div></div>
+        <div class="stat"><h3>Tools</h3><div class="val">10</div></div>
+    </div>
+    <div class="buttons">
+        <button class="btn" onclick="showAll()">All</button>
+        <button class="btn" onclick="show('bash')">bash (23)</button>
+<button class="btn" onclick="show('edit')">edit (7)</button>
+<button class="btn" onclick="show('find')">find (1)</button>
+<button class="btn" onclick="show('glob')">glob (5)</button>
+<button class="btn" onclick="show('grep')">grep (10)</button>
+<button class="btn" onclick="show('help')">help (1)</button>
+<button class="btn" onclick="show('ls')">ls (5)</button>
+<button class="btn" onclick="show('read')">read (7)</button>
+<button class="btn" onclick="show('unknown')">unknown (1)</button>
+<button class="btn" onclick="show('write')">write (4)</button>
+
+    </div>
+    <div id="bash" class="section">
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+status$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+diff\s*(.*)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+log\s*(.*)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+branch\s*(.*)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+add\s+(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+commit\s+(.+)$...</code>
+                    <div class="examples"><code>git commit</code>, <code>git log --oneline</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+checkout\s+(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>git checkout</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+pull\s*(.*)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>git pull</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^git\s+push\s*(.*)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>git push</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^tree\s*(.*)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^wc\s+(?:-l\s+)?(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^(?:count\s+)?lines?\s+(?:in\s+)?(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^(?:размер|size)\s+(?:файла?\s+)?(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^pwd$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^cd\s+(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^python\s+--version$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^python\s+-c\s+"?(.+)"?$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^pip\s+list\s*(.*)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^pip\s+install\s+(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^(?:bash|cmd|run|exec)\s+(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^(?:выполни|запусти|исполни)\s+(?:команду?\s+)?(.+)$...</code>
+                    <div class="examples"><code>выполни запусти исполни</code>, <code>git log --oneline</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^echo\s+(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">bash</span>
+                    <code>^(?:which|where)\s+(.+)$...</code>
+                    <div class="examples"><code>git log --oneline</code>, <code>ls -la</code></div>
+                </div></div><div id="edit" class="section">
+                <div class="card">
+                    <span class="badge">edit</span>
+                    <code>^in\s+(?:file\s+)?["\']?([^\s"\']+)["\']?\s+(?:replace|chang...</code>
+                    <div class="examples"><code>добавь метод test в класс Example</code>, <code>file replace change</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">edit</span>
+                    <code>^(?:replace|change)\s+["\'](.+?)["\']\s+(?:with|to)\s+["\'](...</code>
+                    <div class="examples"><code>добавь метод test в класс Example</code>, <code>replace change with</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">edit</span>
+                    <code>^в\s+(?:файле\s+)?["\']?([^\s"\']+)["\']?\s+(?:замени|измени...</code>
+                    <div class="examples"><code>добавь метод test в класс Example</code>, <code>в файле замени</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">edit</span>
+                    <code>^(?:замени|измени|поменяй)\s+["\'](.+?)["\']\s+на\s+["\'](.+...</code>
+                    <div class="examples"><code>добавь метод test в класс Example</code>, <code>измени функцию main</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">edit</span>
+                    <code>^edit\s+(.+?)\s+lines?\s+(\d+)[-–](\d+)$...</code>
+                    <div class="examples"><code>добавь метод test в класс Example</code>, <code>edit lines</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">edit</span>
+                    <code>^edit\s+(.+?)\s+line\s+(\d+)$...</code>
+                    <div class="examples"><code>добавь метод test в класс Example</code>, <code>edit line</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">edit</span>
+                    <code>^edit\s+(.+)$...</code>
+                    <div class="examples"><code>добавь метод test в класс Example</code>, <code>edit</code></div>
+                </div></div><div id="find" class="section">
+                <div class="card">
+                    <span class="badge">find</span>
+                    <code>^find\s+(.+)$...</code>
+                    <div class="examples"><code>find</code></div>
+                </div></div><div id="glob" class="section">
+                <div class="card">
+                    <span class="badge">glob</span>
+                    <code>^glob\s+"?([^"]+)"?\s*(.*)$...</code>
+                    <div class="examples"><code>список файлов .js</code>, <code>*.py в core/</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">glob</span>
+                    <code>^(?:найди|покажи|выведи)\s+(?:все\s+)?\.?(\w+)\s+файл[ыа]?\s...</code>
+                    <div class="examples"><code>список файлов .js</code>, <code>*.py в core/</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">glob</span>
+                    <code>^(?:список|list)\s+(?:файлов?\s+)?\.?(\w+)\s+(?:в\s+)?(.+)$...</code>
+                    <div class="examples"><code>list</code>, <code>*.py в core/</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">glob</span>
+                    <code>^(?:какие|что за)\s+файл[ыа]?\s+(?:есть\s+)?(?:в\s+)?(.+)$...</code>
+                    <div class="examples"><code>список файлов .js</code>, <code>*.py в core/</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">glob</span>
+                    <code>^\*\.(\w+)\s+(?:files?\s+)?(?:в|in)\s+(.+)$...</code>
+                    <div class="examples"><code>files</code>, <code>список файлов .js</code></div>
+                </div></div><div id="grep" class="section">
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^grep\s+"?([^"]+)"?\s+in\s+(.+)$...</code>
+                    <div class="examples"><code>grep</code>, <code>grep TODO</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^grep\s+"?([^"]+)"?\s*$...</code>
+                    <div class="examples"><code>grep</code>, <code>grep TODO</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:найди|найти|поиск|искать)\s+["\']([^"\']+)["\']\s+(?:в|в...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>найди класс Example</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:найди|найти|поиск|искать)\s+["\']([^"\']+)["\']\s*$...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>найди класс Example</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:покажи|выведи)\s+(?:описания?|документацию|docstring)\s+...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>найди класс Example</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:анализ|структура)\s+(?:модулей|кода)\s+(?:в\s+)?(.+)$...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>анализ структура модулей</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:добавь|вставь|допиши)\s+(?:метод|функцию)\s+(\w+)\s+в\s+...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>добавь вставь допиши</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:измени|обнови|модифицируй)\s+(?:класс|class)\s+(\w+)...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>измени обнови модифицируй</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:найди|покажи|где)\s+(?:класс|class)\s+(\w+)...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>найди класс Example</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">grep</span>
+                    <code>^(?:покажи|найди)\s+(?:метод|функцию|def)\s+(\w+)(?:\s+в\s+(...</code>
+                    <div class="examples"><code>grep TODO</code>, <code>покажи найди метод</code></div>
+                </div></div><div id="help" class="section">
+                <div class="card">
+                    <span class="badge">help</span>
+                    <code>^(?:help|\?|commands)$...</code>
+                    <div class="examples"><code>help commands</code></div>
+                </div></div><div id="ls" class="section">
+                <div class="card">
+                    <span class="badge">ls</span>
+                    <code>^ls\s*(.*)$...</code>
+                    <div class="examples"><code>покажи папку src</code>, <code>ls core/</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">ls</span>
+                    <code>^(?:покажи|выведи)\s+(?:папку?|директорию?|содержимое)\s*(.*...</code>
+                    <div class="examples"><code>покажи папку src</code>, <code>ls core/</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">ls</span>
+                    <code>^список\s+(?:файлов?|папок?|директории?)\s*(.*)$...</code>
+                    <div class="examples"><code>покажи папку src</code>, <code>ls core/</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">ls</span>
+                    <code>^что\s+в\s+(?:папке|директории)\s*(.*)$...</code>
+                    <div class="examples"><code>покажи папку src</code>, <code>что в папке</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">ls</span>
+                    <code>^(?:список|покажи)\s+(?:все\s+)?модул(?:и|ей)\s+(?:в\s+)?(.+...</code>
+                    <div class="examples"><code>покажи папку src</code>, <code>ls core/</code></div>
+                </div></div><div id="read" class="section">
+                <div class="card">
+                    <span class="badge">read</span>
+                    <code>^read\s+(.+?)\s+lines?\s+(\d+)[-–](\d+)$...</code>
+                    <div class="examples"><code>read lines</code>, <code>cat test.py</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">read</span>
+                    <code>^read\s+(.+?)\s+line\s+(\d+)$...</code>
+                    <div class="examples"><code>read line</code>, <code>cat test.py</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">read</span>
+                    <code>^read\s+(.+)$...</code>
+                    <div class="examples"><code>read</code>, <code>cat test.py</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">read</span>
+                    <code>^(?:прочитай|прочти|покажи|открой)\s+(?:файл\s+)?(.+?)\s+(?:...</code>
+                    <div class="examples"><code>прочитай прочти покажи</code>, <code>cat test.py</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">read</span>
+                    <code>^(?:прочитай|прочти|открой|выведи)\s+(?:файл\s+)?(.+)$...</code>
+                    <div class="examples"><code>прочитай прочти открой</code>, <code>cat test.py</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">read</span>
+                    <code>^покажи\s+файл\s+(.+)$...</code>
+                    <div class="examples"><code>покажи файл</code>, <code>cat test.py</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">read</span>
+                    <code>^(?:что\s+делает|опиши)\s+(?:модуль|файл)\s+(.+\.py)$...</code>
+                    <div class="examples"><code>что делает опиши</code>, <code>прочитай main.py</code></div>
+                </div></div><div id="unknown" class="section">
+                <div class="card">
+                    <span class="badge">unknown</span>
+                    <code>(?:add|insert|append|fix|update|modify|refactor|implement|re...</code>
+                    <div class="examples"><code>add insert append</code></div>
+                </div></div><div id="write" class="section">
+                <div class="card">
+                    <span class="badge">write</span>
+                    <code>^(?:создай|напиши|запиши)\s+(?:файл\s+)?([^\s:]+)\s*(?:с\s+(...</code>
+                    <div class="examples"><code>создай напиши запиши</code>, <code>напиши в output.txt</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">write</span>
+                    <code>^(?:создай|напиши)\s+(?:файл\s+)?([^\s]+\.py)\s+с\s+функцией...</code>
+                    <div class="examples"><code>напиши в output.txt</code>, <code>найди функцию main</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">write</span>
+                    <code>^(?:создай|напиши)\s+(?:файл\s+)?([^\s]+\.py)\s+с\s+классом\...</code>
+                    <div class="examples"><code>создай напиши файл</code>, <code>напиши в output.txt</code></div>
+                </div>
+                <div class="card">
+                    <span class="badge">write</span>
+                    <code>^write\s+(.+?)\s*:\s*(.+)$...</code>
+                    <div class="examples"><code>write</code>, <code>напиши в output.txt</code></div>
+                </div></div>
+    <script>
+        function show(tool) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(tool).classList.add('active');
+        }
+        function showAll() {
+            document.querySelectorAll('.section').forEach(s => s.classList.add('active'));
+        }
+        showAll();
+    </script>
+</body>
+</html>

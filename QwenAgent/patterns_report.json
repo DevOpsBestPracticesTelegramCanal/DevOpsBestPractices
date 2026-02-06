@@ -1,0 +1,651 @@
+{
+  "generated_at": "2026-02-06T05:38:23.383677",
+  "total": 64,
+  "by_tool": {
+    "read": 7,
+    "grep": 10,
+    "find": 1,
+    "bash": 23,
+    "ls": 5,
+    "glob": 5,
+    "edit": 7,
+    "write": 4,
+    "help": 1,
+    "unknown": 1
+  },
+  "patterns": [
+    {
+      "regex": "^read\\s+(.+?)\\s+lines?\\s+(\\d+)[-–](\\d+)$",
+      "tool": "read",
+      "file": "PatternRouter",
+      "examples": [
+        "read lines",
+        "cat test.py",
+        "покажи файл config.py"
+      ]
+    },
+    {
+      "regex": "^read\\s+(.+?)\\s+line\\s+(\\d+)$",
+      "tool": "read",
+      "file": "PatternRouter",
+      "examples": [
+        "read line",
+        "cat test.py",
+        "покажи файл config.py"
+      ]
+    },
+    {
+      "regex": "^read\\s+(.+)$",
+      "tool": "read",
+      "file": "PatternRouter",
+      "examples": [
+        "read",
+        "cat test.py",
+        "покажи файл config.py"
+      ]
+    },
+    {
+      "regex": "^(?:прочитай|прочти|покажи|открой)\\s+(?:файл\\s+)?(.+?)\\s+(?:строки?|линии?)\\s+(\\d+)[-–](\\d+)$",
+      "tool": "read",
+      "file": "PatternRouter",
+      "examples": [
+        "прочитай прочти покажи",
+        "cat test.py",
+        "покажи файл config.py"
+      ]
+    },
+    {
+      "regex": "^(?:прочитай|прочти|открой|выведи)\\s+(?:файл\\s+)?(.+)$",
+      "tool": "read",
+      "file": "PatternRouter",
+      "examples": [
+        "прочитай прочти открой",
+        "cat test.py",
+        "покажи файл config.py"
+      ]
+    },
+    {
+      "regex": "^покажи\\s+файл\\s+(.+)$",
+      "tool": "read",
+      "file": "PatternRouter",
+      "examples": [
+        "покажи файл",
+        "cat test.py",
+        "покажи файл config.py"
+      ]
+    },
+    {
+      "regex": "^grep\\s+\"?([^\"]+)\"?\\s+in\\s+(.+)$",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep",
+        "grep TODO",
+        "найди класс Example"
+      ]
+    },
+    {
+      "regex": "^grep\\s+\"?([^\"]+)\"?\\s*$",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep",
+        "grep TODO",
+        "найди класс Example"
+      ]
+    },
+    {
+      "regex": "^find\\s+(.+)$",
+      "tool": "find",
+      "file": "PatternRouter",
+      "examples": [
+        "find"
+      ]
+    },
+    {
+      "regex": "^(?:найди|найти|поиск|искать)\\s+[\"\\']([^\"\\']+)[\"\\']\\s+(?:в|в\\s+папке|в\\s+файле)\\s+(.+)$",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "найди класс Example",
+        "покажи функцию main"
+      ]
+    },
+    {
+      "regex": "^(?:найди|найти|поиск|искать)\\s+[\"\\']([^\"\\']+)[\"\\']\\s*$",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "найди класс Example",
+        "покажи функцию main"
+      ]
+    },
+    {
+      "regex": "^git\\s+status$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^git\\s+diff\\s*(.*)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^git\\s+log\\s*(.*)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^git\\s+branch\\s*(.*)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^git\\s+add\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "git add"
+      ]
+    },
+    {
+      "regex": "^git\\s+commit\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git commit",
+        "git log --oneline",
+        "ls -la"
+      ]
+    },
+    {
+      "regex": "^git\\s+checkout\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "git checkout",
+        "ls -la"
+      ]
+    },
+    {
+      "regex": "^git\\s+pull\\s*(.*)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "git pull",
+        "ls -la"
+      ]
+    },
+    {
+      "regex": "^git\\s+push\\s*(.*)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "git push",
+        "ls -la"
+      ]
+    },
+    {
+      "regex": "^ls\\s*(.*)$",
+      "tool": "ls",
+      "file": "PatternRouter",
+      "examples": [
+        "покажи папку src",
+        "ls core/"
+      ]
+    },
+    {
+      "regex": "^(?:покажи|выведи)\\s+(?:папку?|директорию?|содержимое)\\s*(.*)$",
+      "tool": "ls",
+      "file": "PatternRouter",
+      "examples": [
+        "покажи папку src",
+        "ls core/",
+        "покажи выведи папку"
+      ]
+    },
+    {
+      "regex": "^список\\s+(?:файлов?|папок?|директории?)\\s*(.*)$",
+      "tool": "ls",
+      "file": "PatternRouter",
+      "examples": [
+        "покажи папку src",
+        "ls core/",
+        "список файлов папок"
+      ]
+    },
+    {
+      "regex": "^что\\s+в\\s+(?:папке|директории)\\s*(.*)$",
+      "tool": "ls",
+      "file": "PatternRouter",
+      "examples": [
+        "покажи папку src",
+        "что в папке",
+        "ls core/"
+      ]
+    },
+    {
+      "regex": "^tree\\s*(.*)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "tree"
+      ]
+    },
+    {
+      "regex": "^glob\\s+\"?([^\"]+)\"?\\s*(.*)$",
+      "tool": "glob",
+      "file": "PatternRouter",
+      "examples": [
+        "список файлов .js",
+        "*.py в core/",
+        "найди все .py файлы в src/"
+      ]
+    },
+    {
+      "regex": "^(?:найди|покажи|выведи)\\s+(?:все\\s+)?\\.?(\\w+)\\s+файл[ыа]?\\s+(?:в\\s+)?(.+)$",
+      "tool": "glob",
+      "file": "PatternRouter",
+      "examples": [
+        "список файлов .js",
+        "*.py в core/",
+        "найди все .py файлы в src/"
+      ]
+    },
+    {
+      "regex": "^(?:список|list)\\s+(?:файлов?\\s+)?\\.?(\\w+)\\s+(?:в\\s+)?(.+)$",
+      "tool": "glob",
+      "file": "PatternRouter",
+      "examples": [
+        "list",
+        "*.py в core/",
+        "список файлов в"
+      ]
+    },
+    {
+      "regex": "^(?:какие|что за)\\s+файл[ыа]?\\s+(?:есть\\s+)?(?:в\\s+)?(.+)$",
+      "tool": "glob",
+      "file": "PatternRouter",
+      "examples": [
+        "список файлов .js",
+        "*.py в core/",
+        "найди все .py файлы в src/"
+      ]
+    },
+    {
+      "regex": "^\\*\\.(\\w+)\\s+(?:files?\\s+)?(?:в|in)\\s+(.+)$",
+      "tool": "glob",
+      "file": "PatternRouter",
+      "examples": [
+        "files",
+        "список файлов .js",
+        "*.py в core/"
+      ]
+    },
+    {
+      "regex": "^(?:покажи|выведи)\\s+(?:описания?|документацию|docstring)\\s+(?:всех\\s+)?(?:модулей|файлов)\\s+(?:в\\s+",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "найди класс Example",
+        "покажи функцию main"
+      ]
+    },
+    {
+      "regex": "^(?:анализ|структура)\\s+(?:модулей|кода)\\s+(?:в\\s+)?(.+)$",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "анализ структура модулей",
+        "найди класс Example"
+      ]
+    },
+    {
+      "regex": "^(?:список|покажи)\\s+(?:все\\s+)?модул(?:и|ей)\\s+(?:в\\s+)?(.+)$",
+      "tool": "ls",
+      "file": "PatternRouter",
+      "examples": [
+        "покажи папку src",
+        "ls core/",
+        "список покажи все"
+      ]
+    },
+    {
+      "regex": "^(?:что\\s+делает|опиши)\\s+(?:модуль|файл)\\s+(.+\\.py)$",
+      "tool": "read",
+      "file": "PatternRouter",
+      "examples": [
+        "что делает опиши",
+        "прочитай main.py",
+        "покажи файл config.py"
+      ]
+    },
+    {
+      "regex": "^(?:добавь|вставь|допиши)\\s+(?:метод|функцию)\\s+(\\w+)\\s+в\\s+(?:класс|class)\\s+(\\w+)",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "добавь вставь допиши",
+        "найди класс Example"
+      ]
+    },
+    {
+      "regex": "^(?:измени|обнови|модифицируй)\\s+(?:класс|class)\\s+(\\w+)",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "измени обнови модифицируй",
+        "найди класс Example"
+      ]
+    },
+    {
+      "regex": "^(?:найди|покажи|где)\\s+(?:класс|class)\\s+(\\w+)",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "найди класс Example",
+        "покажи функцию main"
+      ]
+    },
+    {
+      "regex": "^(?:покажи|найди)\\s+(?:метод|функцию|def)\\s+(\\w+)(?:\\s+в\\s+(?:классе?|class)\\s+(\\w+))?",
+      "tool": "grep",
+      "file": "PatternRouter",
+      "examples": [
+        "grep TODO",
+        "покажи найди метод",
+        "найди класс Example"
+      ]
+    },
+    {
+      "regex": "^wc\\s+(?:-l\\s+)?(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^(?:count\\s+)?lines?\\s+(?:in\\s+)?(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "count lines"
+      ]
+    },
+    {
+      "regex": "^(?:размер|size)\\s+(?:файла?\\s+)?(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "size"
+      ]
+    },
+    {
+      "regex": "^pwd$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^cd\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^python\\s+--version$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "python version"
+      ]
+    },
+    {
+      "regex": "^python\\s+-c\\s+\"?(.+)\"?$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "python"
+      ]
+    },
+    {
+      "regex": "^pip\\s+list\\s*(.*)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pip list"
+      ]
+    },
+    {
+      "regex": "^pip\\s+install\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^(?:bash|cmd|run|exec)\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "bash cmd run"
+      ]
+    },
+    {
+      "regex": "^(?:выполни|запусти|исполни)\\s+(?:команду?\\s+)?(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "выполни запусти исполни",
+        "git log --oneline",
+        "ls -la"
+      ]
+    },
+    {
+      "regex": "^echo\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "echo"
+      ]
+    },
+    {
+      "regex": "^(?:which|where)\\s+(.+)$",
+      "tool": "bash",
+      "file": "PatternRouter",
+      "examples": [
+        "git log --oneline",
+        "ls -la",
+        "pwd"
+      ]
+    },
+    {
+      "regex": "^in\\s+(?:file\\s+)?[\"\\']?([^\\s\"\\']+)[\"\\']?\\s+(?:replace|change)\\s+[\"\\'](.+?)[\"\\']\\s+(?:with|to)\\s+[\"\\",
+      "tool": "edit",
+      "file": "PatternRouter",
+      "examples": [
+        "добавь метод test в класс Example",
+        "file replace change",
+        "измени функцию main"
+      ]
+    },
+    {
+      "regex": "^(?:replace|change)\\s+[\"\\'](.+?)[\"\\']\\s+(?:with|to)\\s+[\"\\'](.+?)[\"\\']\\s+in\\s+(?:file\\s+)?[\"\\']?([^\\s",
+      "tool": "edit",
+      "file": "PatternRouter",
+      "examples": [
+        "добавь метод test в класс Example",
+        "replace change with",
+        "измени функцию main"
+      ]
+    },
+    {
+      "regex": "^в\\s+(?:файле\\s+)?[\"\\']?([^\\s\"\\']+)[\"\\']?\\s+(?:замени|измени|поменяй)\\s+[\"\\'](.+?)[\"\\']\\s+на\\s+[\"\\']",
+      "tool": "edit",
+      "file": "PatternRouter",
+      "examples": [
+        "добавь метод test в класс Example",
+        "в файле замени",
+        "измени функцию main"
+      ]
+    },
+    {
+      "regex": "^(?:замени|измени|поменяй)\\s+[\"\\'](.+?)[\"\\']\\s+на\\s+[\"\\'](.+?)[\"\\']\\s+в\\s+(?:файле\\s+)?[\"\\']?([^\\s\"\\",
+      "tool": "edit",
+      "file": "PatternRouter",
+      "examples": [
+        "добавь метод test в класс Example",
+        "измени функцию main",
+        "замени измени поменяй"
+      ]
+    },
+    {
+      "regex": "^(?:создай|напиши|запиши)\\s+(?:файл\\s+)?([^\\s:]+)\\s*(?:с\\s+(?:содержимым|кодом|текстом))?\\s*:\\s*(.+)",
+      "tool": "write",
+      "file": "PatternRouter",
+      "examples": [
+        "создай напиши запиши",
+        "напиши в output.txt",
+        "создай файл test.py"
+      ]
+    },
+    {
+      "regex": "^(?:создай|напиши)\\s+(?:файл\\s+)?([^\\s]+\\.py)\\s+с\\s+функцией\\s+(\\w+)\\s+котор\\S+\\s+(.+)$",
+      "tool": "write",
+      "file": "PatternRouter",
+      "examples": [
+        "напиши в output.txt",
+        "найди функцию main",
+        "создай напиши файл"
+      ]
+    },
+    {
+      "regex": "^(?:создай|напиши)\\s+(?:файл\\s+)?([^\\s]+\\.py)\\s+с\\s+классом\\s+(\\w+)",
+      "tool": "write",
+      "file": "PatternRouter",
+      "examples": [
+        "создай напиши файл",
+        "напиши в output.txt",
+        "найди .py файлы"
+      ]
+    },
+    {
+      "regex": "^edit\\s+(.+?)\\s+lines?\\s+(\\d+)[-–](\\d+)$",
+      "tool": "edit",
+      "file": "PatternRouter",
+      "examples": [
+        "добавь метод test в класс Example",
+        "edit lines",
+        "измени функцию main"
+      ]
+    },
+    {
+      "regex": "^edit\\s+(.+?)\\s+line\\s+(\\d+)$",
+      "tool": "edit",
+      "file": "PatternRouter",
+      "examples": [
+        "добавь метод test в класс Example",
+        "edit line",
+        "измени функцию main"
+      ]
+    },
+    {
+      "regex": "^edit\\s+(.+)$",
+      "tool": "edit",
+      "file": "PatternRouter",
+      "examples": [
+        "добавь метод test в класс Example",
+        "edit",
+        "измени функцию main"
+      ]
+    },
+    {
+      "regex": "^write\\s+(.+?)\\s*:\\s*(.+)$",
+      "tool": "write",
+      "file": "PatternRouter",
+      "examples": [
+        "write",
+        "напиши в output.txt",
+        "создай файл test.py"
+      ]
+    },
+    {
+      "regex": "^(?:help|\\?|commands)$",
+      "tool": "help",
+      "file": "PatternRouter",
+      "examples": [
+        "help commands"
+      ]
+    },
+    {
+      "regex": "(?:add|insert|append|fix|update|modify|refactor|implement|remove|delete|change)\\s+.+?\\s+(?:in|to|fro",
+      "tool": "unknown",
+      "file": "core\\qwencode_agent.py",
+      "examples": [
+        "add insert append"
+      ]
+    }
+  ]
+}
