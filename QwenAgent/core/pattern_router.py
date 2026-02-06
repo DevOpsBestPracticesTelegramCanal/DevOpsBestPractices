@@ -99,15 +99,51 @@ class PatternRouter:
             # =====================================================
             # GREP/SEARCH COMMANDS (English + Russian)
             # =====================================================
-            # GREP с путём
+            # GREP with flags and quoted pattern: grep -i "pattern" path
             (
-                re.compile(r'^grep\s+"?([^"]+)"?\s+in\s+(.+)$', re.IGNORECASE),
+                re.compile(r'^grep\s+(-[a-zA-Z]+)\s+"([^"]+)"\s+(\S+)\s*$', re.IGNORECASE),
+                'grep',
+                self._parse_grep_flags
+            ),
+            # GREP with flags and quoted pattern, no path: grep -i "pattern"
+            (
+                re.compile(r'^grep\s+(-[a-zA-Z]+)\s+"([^"]+)"\s*$', re.IGNORECASE),
+                'grep',
+                self._parse_grep_flags_nopath
+            ),
+            # GREP quoted pattern + path: grep "pattern" path
+            (
+                re.compile(r'^grep\s+"([^"]+)"\s+(\S+)\s*$', re.IGNORECASE),
                 'grep',
                 self._parse_grep_in
             ),
-            # GREP базовый
+            # GREP quoted pattern + "in" + path: grep "pattern" in path
             (
-                re.compile(r'^grep\s+"?([^"]+)"?\s*$', re.IGNORECASE),
+                re.compile(r'^grep\s+"([^"]+)"\s+in\s+(.+)$', re.IGNORECASE),
+                'grep',
+                self._parse_grep_in
+            ),
+            # GREP unquoted pattern + "in" + path: grep pattern in path
+            (
+                re.compile(r'^grep\s+(\S+)\s+in\s+(.+)$', re.IGNORECASE),
+                'grep',
+                self._parse_grep_in
+            ),
+            # GREP quoted pattern only: grep "pattern"
+            (
+                re.compile(r'^grep\s+"([^"]+)"\s*$', re.IGNORECASE),
+                'grep',
+                self._parse_grep
+            ),
+            # GREP unquoted pattern + path: grep pattern path
+            (
+                re.compile(r'^grep\s+(\S+)\s+(\S+)\s*$', re.IGNORECASE),
+                'grep',
+                self._parse_grep_in
+            ),
+            # GREP unquoted pattern only: grep pattern
+            (
+                re.compile(r'^grep\s+(\S+)\s*$', re.IGNORECASE),
                 'grep',
                 self._parse_grep
             ),
@@ -692,10 +728,41 @@ class {m.group(2)}:
         pattern = match.group(1).strip()
         return {"pattern": pattern, "path": "."}
 
+    def _parse_grep_flags(self, match: re.Match) -> Dict[str, Any]:
+        """grep -flags pattern path"""
+        flags = match.group(1).strip()
+        pattern = match.group(2).strip()
+        path = match.group(3).strip()
+        if 'i' in flags:
+            pattern = f"(?i){pattern}"
+        return {"pattern": pattern, "path": path}
+
+    def _parse_grep_flags_nopath(self, match: re.Match) -> Dict[str, Any]:
+        """grep -flags pattern (no path)"""
+        flags = match.group(1).strip()
+        pattern = match.group(2).strip()
+        if 'i' in flags:
+            pattern = f"(?i){pattern}"
+        return {"pattern": pattern, "path": "."}
+
     def _parse_find(self, match: re.Match) -> Dict[str, Any]:
-        """find query"""
-        query = match.group(1).strip()
-        return {"query": query, "path": "."}
+        """find query [in path] - converts glob patterns to regex for grep"""
+        raw = match.group(1).strip()
+        # find *.py in core/
+        parts = re.split(r'\s+in\s+', raw, maxsplit=1)
+        if len(parts) == 2:
+            query, path = parts[0].strip(), parts[1].strip()
+        else:
+            # find *.py core/  (last token is path if it contains / or \)
+            tokens = raw.rsplit(None, 1)
+            if len(tokens) == 2 and ('/' in tokens[1] or '\\' in tokens[1] or tokens[1] == '.'):
+                query, path = tokens[0].strip(), tokens[1].strip()
+            else:
+                query, path = raw, "."
+        # Convert glob patterns (*.py, test_*) to regex for grep compatibility
+        if '*' in query or '?' in query:
+            query = query.replace('.', r'\.').replace('*', '.*').replace('?', '.')
+        return {"query": query, "path": path}
 
     def _parse_ls(self, match: re.Match) -> Dict[str, Any]:
         """ls path"""
