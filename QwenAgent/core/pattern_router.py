@@ -134,11 +134,24 @@ class PatternRouter:
             # =====================================================
             # GIT COMMANDS
             # =====================================================
-            # GIT STATUS
+            # GIT STATUS (fast: no untracked files scan)
             (
                 re.compile(r'^git\s+status$', re.IGNORECASE),
                 'bash',
+                # -uno = no untracked (fast), avoids scanning parent dirs
+                lambda m: {"command": "git status -s -uno && echo '---' && git status -s -u | head -20"}
+            ),
+            # GIT STATUS -a / --all (show everything including untracked)
+            (
+                re.compile(r'^git\s+status\s+(-a|--all|full)$', re.IGNORECASE),
+                'bash',
                 lambda m: {"command": "git status"}
+            ),
+            # GIT STATUS with other flags (pass through)
+            (
+                re.compile(r'^git\s+status\s+(.+)$', re.IGNORECASE),
+                'bash',
+                lambda m: {"command": f"git status {m.group(1).strip()}"}
             ),
             # GIT DIFF
             (
