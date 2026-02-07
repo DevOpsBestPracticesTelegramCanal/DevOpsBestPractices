@@ -72,6 +72,25 @@ except ImportError:
     swecas_classifier = None
     HAS_SWECAS = False
 
+# Orchestrator (tier waterfall + Multi-Candidate + WorkingMemory)
+try:
+    from core.orchestrator import Orchestrator, ProcessingResult, ProcessingTier
+    HAS_ORCHESTRATOR = True
+except ImportError as _orch_err:
+    HAS_ORCHESTRATOR = False
+    Orchestrator = None
+    print(f"[ORCHESTRATOR] Import failed: {_orch_err}")
+
+# QwenCodeAgent (streaming + WorkingMemory + agentic loop)
+try:
+    from core.qwencode_agent import QwenCodeAgent, QwenCodeConfig
+    HAS_AGENT = True
+except ImportError as _agent_err:
+    HAS_AGENT = False
+    QwenCodeAgent = None
+    QwenCodeConfig = None
+    print(f"[AGENT] Import failed: {_agent_err}")
+
 # ApprovalManager for Human-in-the-Loop
 try:
     from core.approval_manager import (
@@ -97,8 +116,8 @@ class ServerConfig:
     heavy_model: str = "qwen2.5-coder:7b"
 
     # Token limits
-    max_tokens_fast: int = 400
-    max_tokens_deep: int = 800
+    max_tokens_fast: int = 1024
+    max_tokens_deep: int = 2048
 
     # Timeouts
     ollama_timeout: int = 120
@@ -441,8 +460,14 @@ def health():
         "pattern_router": True,
         "unified_tools": True,
         "swecas": HAS_SWECAS,
+        "orchestrator": orchestrator is not None,
+        "agent": agent is not None,
         "approval_manager": HAS_APPROVAL,
     }
+
+    # Add orchestrator stats if available
+    if orchestrator:
+        health_data["orchestrator_stats"] = orchestrator.get_stats()
 
     # Add approval stats if available
     if HAS_APPROVAL and approval_manager:
@@ -507,8 +532,8 @@ def chat():
             "mode_icon": "[FAST]"
         })
 
-    # 2. Deep Path (LLM) with SWECAS classification
-    print(f"[DEEP PATH] Using LLM: {config.fast_model}")
+    # 2. Deep Path: Orchestrator → LLM fallback
+    print(f"[DEEP PATH] orchestrator={'yes' if orchestrator else 'no'}")
 
     # SWECAS classification for bug-related queries
     swecas_info = None
@@ -525,6 +550,26 @@ def chat():
             print(f"[SWECAS] Category: {swecas_info['category']} - {swecas_info['name']}")
 
     try:
+        # --- Orchestrator path ---
+        if orchestrator:
+            orch_result: ProcessingResult = orchestrator.process(message)
+            result = {
+                "success": True,
+                "response": orch_result.response,
+                "tool_calls": orch_result.tool_calls,
+                "route_method": f"orchestrator_{orch_result.tier.name.lower()}",
+                "tier": orch_result.tier.name,
+                "confidence": orch_result.confidence,
+                "iterations": orch_result.iterations,
+                "processing_time_ms": orch_result.processing_time_ms,
+                "mode": "deep",
+                "mode_icon": "[DEEP]"
+            }
+            if swecas_info:
+                result["swecas"] = swecas_info
+            return jsonify(result)
+
+        # --- Raw LLM fallback ---
         response = call_llm(message)
 
         result = {
@@ -665,8 +710,8 @@ def chat_stream():
                 yield sse_done(True, "fast")
                 return
 
-            # 3. Deep Path (LLM) with SWECAS classification
-            print(f"[DEEP PATH] LLM: {config.fast_model}")
+            # 3. Deep Path: Agent → Orchestrator → LLM fallback
+            print(f"[DEEP PATH] agent={'yes' if agent else 'no'}, orchestrator={'yes' if orchestrator else 'no'}")
 
             # SWECAS classification for enhanced context
             swecas_info = None
@@ -681,14 +726,59 @@ def chat_stream():
                     print(f"[SWECAS] Category: {swecas_info['category']} - {swecas_info['name']}")
                     yield sse_status(f"[SWECAS-{swecas_info['category']}] {swecas_info['name']}")
 
-            yield sse_status(f"Thinking... (model: {config.fast_model})")
+            deep_handled = False
 
-            response = call_llm_stream(message, yield_func=lambda x: None)
+            # --- Priority 1: Agent (streaming agentic loop) ---
+            if agent:
+                try:
+                    yield sse_status("Agent processing...")
+                    for evt in agent.process_stream(message):
+                        evt_type = evt.get("event", "")
+                        if evt_type == "status":
+                            yield sse_status(evt.get("text", ""))
+                        elif evt_type == "tool_start":
+                            yield sse_tool_start(evt.get("tool", ""), evt.get("params", {}))
+                        elif evt_type == "tool_result":
+                            yield sse_tool_result(evt.get("tool", ""), evt.get("params", {}), evt.get("result", {}))
+                        elif evt_type == "thinking":
+                            yield sse_event("thinking", {"steps": evt.get("steps", [])})
+                        elif evt_type == "response":
+                            yield sse_response(evt.get("text", ""), evt.get("route_method", "agent"))
+                        elif evt_type == "done":
+                            pass  # we emit our own done below
+                    _stats["requests_deep_path"] += 1
+                    yield sse_done(True, "deep_agent", swecas=swecas_info)
+                    deep_handled = True
+                except Exception as agent_err:
+                    print(f"[AGENT ERROR] {agent_err}, falling back to orchestrator")
+                    yield sse_status(f"Agent error, falling back...")
 
-            yield sse_response(response, "llm")
-            _stats["requests_deep_path"] += 1
-            _last_debug["response"] = response[:500] if response else ""
-            yield sse_done(True, "deep", swecas=swecas_info)
+            # --- Priority 2: Orchestrator (tier waterfall) ---
+            if not deep_handled and orchestrator:
+                try:
+                    yield sse_status("Orchestrator processing...")
+                    orch_result = orchestrator.process(message)
+                    # Emit tool_call events
+                    for tc in orch_result.tool_calls:
+                        yield sse_tool_start(tc.get("tool", ""), tc.get("params", {}))
+                        yield sse_tool_result(tc.get("tool", ""), tc.get("params", {}), tc.get("result", {}))
+                    route_tag = f"orchestrator_{orch_result.tier.name.lower()}"
+                    yield sse_response(orch_result.response, route_tag)
+                    _stats["requests_deep_path"] += 1
+                    yield sse_done(True, "deep_orchestrator", swecas=swecas_info)
+                    deep_handled = True
+                except Exception as orch_err:
+                    print(f"[ORCHESTRATOR ERROR] {orch_err}, falling back to raw LLM")
+                    yield sse_status(f"Orchestrator error, falling back...")
+
+            # --- Priority 3: Raw LLM fallback ---
+            if not deep_handled:
+                yield sse_status(f"Thinking... (model: {config.fast_model})")
+                response = call_llm_stream(message, yield_func=lambda x: None)
+                yield sse_response(response, "llm")
+                _stats["requests_deep_path"] += 1
+                _last_debug["response"] = response[:500] if response else ""
+                yield sse_done(True, "deep", swecas=swecas_info)
 
         except Exception as e:
             import traceback
@@ -779,6 +869,36 @@ def call_llm_stream(message: str, model: str = None, yield_func: callable = None
 
     except Exception as e:
         return f"LLM Error: {e}"
+
+
+# ============================================================================
+# ORCHESTRATOR + AGENT INSTANCES
+# ============================================================================
+
+orchestrator = None
+agent = None
+
+if HAS_ORCHESTRATOR:
+    try:
+        orchestrator = Orchestrator(
+            llm_client=lambda p: call_llm(p, config.heavy_model),
+            use_bilingual_router=False,
+            enable_multi_candidate=True,
+        )
+        print(f"[ORCHESTRATOR] Initialized (multi-candidate={orchestrator.multi_candidate_pipeline is not None})")
+    except Exception as _orch_init_err:
+        print(f"[ORCHESTRATOR] Init failed: {_orch_init_err}")
+
+if HAS_AGENT:
+    try:
+        agent = QwenCodeAgent(QwenCodeConfig(
+            ollama_url=config.ollama_url,
+            model=config.heavy_model,
+            working_dir=config.project_root,
+        ))
+        print(f"[AGENT] Initialized (model={config.heavy_model})")
+    except Exception as _agent_init_err:
+        print(f"[AGENT] Init failed: {_agent_init_err}")
 
 
 # ============================================================================
@@ -1408,6 +1528,8 @@ def main():
     print(f"  Port:              {args.port}")
     print(f"  Ollama auto-start: {'[+] enabled' if not args.no_auto_start else '[-] disabled'}")
     print(f"  SWECAS:            {'[+] enabled' if HAS_SWECAS else '[-] disabled'}")
+    print(f"  Orchestrator:      {'[+] enabled' if orchestrator else '[-] disabled'}")
+    print(f"  Agent:             {'[+] enabled' if agent else '[-] disabled'}")
     print(f"  ApprovalManager:   {'[+] enabled' if HAS_APPROVAL else '[-] disabled'}")
     print(f"  ExitHandler:       {'[+] enabled' if HAS_EXIT_HANDLER and not args.no_exit_handler else '[-] disabled'}")
     print("=" * 60)
