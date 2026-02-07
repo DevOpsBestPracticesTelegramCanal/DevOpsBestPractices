@@ -103,6 +103,14 @@ except ImportError:
     ApprovalManager = None
     RiskAssessor = None
 
+# Observability metrics registry
+try:
+    from core.observability.metrics import metrics as metrics_registry
+    HAS_METRICS = True
+except ImportError:
+    HAS_METRICS = False
+    metrics_registry = None
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -472,6 +480,20 @@ def health():
     # Add approval stats if available
     if HAS_APPROVAL and approval_manager:
         health_data["approval_stats"] = approval_manager.get_stats()
+
+    # Multi-Candidate Pipeline info
+    if agent and hasattr(agent, 'multi_candidate_pipeline'):
+        mc_pipe = agent.multi_candidate_pipeline
+        has_cross_review = bool(
+            mc_pipe and hasattr(mc_pipe.config, 'cross_reviewer') and mc_pipe.config.cross_reviewer
+        )
+        health_data["multi_candidate"] = {
+            "enabled": mc_pipe is not None,
+            "n_candidates": mc_pipe.config.n_candidates if mc_pipe else 0,
+            "runs": agent.stats.get("multi_candidate_runs", 0),
+            "fallbacks": agent.stats.get("multi_candidate_fallbacks", 0),
+            "cross_review": has_cross_review,
+        }
 
     return jsonify(health_data)
 
@@ -1307,7 +1329,7 @@ _current_mode = "auto"  # auto, fast, deep, search
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """Get server statistics"""
-    return jsonify({
+    stats_data = {
         **_stats,
         "uptime_seconds": (datetime.now() - datetime.fromisoformat(_stats["start_time"])).total_seconds(),
         "config": {
@@ -1316,8 +1338,13 @@ def get_stats():
             "project_root": config.project_root
         },
         "swecas_enabled": HAS_SWECAS,
-        "approval_enabled": HAS_APPROVAL
-    })
+        "approval_enabled": HAS_APPROVAL,
+    }
+    if HAS_METRICS and metrics_registry:
+        stats_data["metrics"] = metrics_registry.to_dict()
+    if agent:
+        stats_data["agent_stats"] = agent.stats
+    return jsonify(stats_data)
 
 
 @app.route('/api/mode', methods=['GET', 'POST'])

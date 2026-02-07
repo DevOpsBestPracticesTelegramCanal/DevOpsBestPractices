@@ -29,7 +29,27 @@ from .selector import CandidateSelector, ScoringWeights
 from code_validator.rules.base import RuleRunner, RuleResult
 from code_validator.rules.python_validators import default_python_rules
 
+from core.observability.metrics import metrics as metrics_registry
+
 logger = logging.getLogger(__name__)
+
+# --- Prometheus-style metrics for Multi-Candidate Pipeline ---
+_mc_runs = metrics_registry.counter("mc_pipeline_runs_total", "Total pipeline runs")
+_mc_candidates = metrics_registry.counter("mc_candidates_generated_total", "Total candidates generated")
+_mc_duration = metrics_registry.histogram(
+    "mc_pipeline_duration_seconds", "Pipeline run duration",
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+)
+_mc_best_score = metrics_registry.histogram(
+    "mc_best_score", "Best candidate score distribution",
+    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+)
+_mc_critical_errors = metrics_registry.counter("mc_critical_errors_total", "Candidates with critical errors")
+_mc_cross_reviews = metrics_registry.counter("mc_cross_reviews_total", "Cross-architecture reviews performed")
+_mc_cross_review_duration = metrics_registry.histogram(
+    "mc_cross_review_duration_seconds", "Cross-review API call duration",
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
+)
 
 
 @dataclass
@@ -43,6 +63,8 @@ class PipelineResult:
     generation_time: float = 0.0
     validation_time: float = 0.0
     selection_time: float = 0.0
+    cross_review_result: Optional[Any] = None  # ReviewResult from cross_arch_review
+    cross_review_time: float = 0.0
 
     @property
     def code(self) -> str:
@@ -53,8 +75,38 @@ class PipelineResult:
     def score(self) -> float:
         return self.best.total_score if self.best else 0.0
 
+    def get_candidate_comparison(self) -> List[Dict[str, Any]]:
+        """Return per-candidate details sorted by score (best first)."""
+        candidates = sorted(
+            self.pool.candidates,
+            key=lambda c: c.total_score,
+            reverse=True,
+        )
+        result = []
+        for c in candidates:
+            validator_breakdown = {}
+            for vs in c.validation_scores:
+                validator_breakdown[vs.validator_name] = {
+                    "passed": vs.passed,
+                    "score": round(vs.score, 4),
+                    "errors": len(vs.errors),
+                    "warnings": len(vs.warnings),
+                }
+            result.append({
+                "id": c.id,
+                "temperature": c.temperature,
+                "score": round(c.total_score, 4),
+                "status": c.status.value,
+                "all_passed": c.all_passed,
+                "has_critical_errors": c.has_critical_errors,
+                "validators": validator_breakdown,
+                "generation_time": round(c.generation_time, 3),
+                "code_lines": len(c.code.strip().splitlines()) if c.code else 0,
+            })
+        return result
+
     def summary(self) -> Dict[str, Any]:
-        return {
+        s = {
             "candidates_generated": self.pool.size,
             "best_id": self.best.id if self.best else None,
             "best_score": round(self.score, 4),
@@ -63,7 +115,16 @@ class PipelineResult:
             "generation_time": round(self.generation_time, 3),
             "validation_time": round(self.validation_time, 3),
             "pool_stats": self.pool.stats(),
+            "candidate_comparison": self.get_candidate_comparison(),
         }
+        if self.cross_review_result:
+            s["cross_review"] = {
+                "issues": len(self.cross_review_result.issues),
+                "has_critical": self.cross_review_result.has_critical,
+                "time": round(self.cross_review_time, 3),
+                "model": self.cross_review_result.model,
+            }
+        return s
 
 
 @dataclass
@@ -75,6 +136,7 @@ class PipelineConfig:
     fail_fast_validation: bool = True  # stop validating on first CRITICAL fail
     generation_config: Optional[MultiCandidateConfig] = None
     scoring_weights: Optional[ScoringWeights] = None
+    cross_reviewer: Optional[Any] = None  # CrossArchReviewer instance (optional)
 
 
 class MultiCandidatePipeline:
@@ -172,7 +234,45 @@ class MultiCandidatePipeline:
         best = self.selector.select(pool)
         selection_time = time.perf_counter() - t_sel
 
+        # --- Step 4: Cross-Architecture Review (optional, advisory) ---
+        cross_review_result = None
+        cross_review_time = 0.0
+        reviewer = self.config.cross_reviewer
+        if reviewer and best:
+            try:
+                if reviewer.should_review(swecas_code=swecas_code, code=best.code):
+                    t_review = time.perf_counter()
+                    validation_summary = "; ".join(
+                        f"{vs.validator_name}: {'PASS' if vs.passed else 'FAIL'}"
+                        for vs in best.validation_scores
+                    )
+                    cross_review_result = reviewer.review(
+                        code=best.code,
+                        validation_summary=validation_summary,
+                        query=query,
+                        swecas_code=swecas_code,
+                    )
+                    cross_review_time = time.perf_counter() - t_review
+                    _mc_cross_reviews.inc()
+                    _mc_cross_review_duration.observe(cross_review_time)
+                    logger.info(
+                        "[Pipeline] cross-review: %d issues (%.2fs)",
+                        len(cross_review_result.issues),
+                        cross_review_time,
+                    )
+            except Exception as review_err:
+                logger.warning("[Pipeline] cross-review failed: %s", review_err)
+
         total_time = time.perf_counter() - t_start
+
+        # --- Record metrics ---
+        _mc_runs.inc()
+        _mc_candidates.inc(pool.size)
+        _mc_duration.observe(total_time)
+        _mc_best_score.observe(best.total_score if best else 0.0)
+        for c in pool.candidates:
+            if c.has_critical_errors:
+                _mc_critical_errors.inc()
 
         logger.info(
             "[Pipeline] done: best=#%d score=%.4f (%s errors) in %.2fs total",
@@ -190,6 +290,8 @@ class MultiCandidatePipeline:
             generation_time=generation_time,
             validation_time=validation_time,
             selection_time=selection_time,
+            cross_review_result=cross_review_result,
+            cross_review_time=cross_review_time,
         )
 
     def run_sync(self, **kwargs) -> PipelineResult:

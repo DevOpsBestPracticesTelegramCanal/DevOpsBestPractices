@@ -71,6 +71,14 @@ except ImportError as _mc_err:
     MultiCandidatePipeline = None
     print(f"[MULTI-CANDIDATE] Import failed: {_mc_err}")
 
+# Week 3.1: Cross-Architecture Review via Claude Haiku
+try:
+    from .cross_arch_review import CrossArchReviewer
+    HAS_CROSS_REVIEW = True
+except ImportError:
+    HAS_CROSS_REVIEW = False
+    CrossArchReviewer = None
+
 
 @dataclass
 class QwenCodeConfig:
@@ -227,6 +235,17 @@ Current working directory: {working_dir}
                     model=self.config.model,
                 )
                 from .generation.multi_candidate import MultiCandidateConfig
+                # Initialize CrossArchReviewer if ANTHROPIC_API_KEY is set
+                cross_reviewer = None
+                if HAS_CROSS_REVIEW:
+                    api_key = os.environ.get("ANTHROPIC_API_KEY")
+                    if api_key:
+                        cross_reviewer = CrossArchReviewer(
+                            api_key=api_key,
+                            monthly_budget=5.0,
+                        )
+                        print("[CROSS-REVIEW] Enabled (Claude Haiku)")
+
                 self.multi_candidate_pipeline = MultiCandidatePipeline(
                     llm=adapter,
                     config=PipelineConfig(
@@ -237,6 +256,7 @@ Current working directory: {working_dir}
                             per_candidate_timeout=300.0,  # 5 min per candidate
                             total_timeout=660.0,          # 11 min total
                         ),
+                        cross_reviewer=cross_reviewer,
                     ),
                 )
                 print(f"[MULTI-CANDIDATE] Initialized (model={self.config.model}, n=2)")
@@ -283,6 +303,9 @@ Current working directory: {working_dir}
             # Week 3: Multi-Candidate tracking
             "multi_candidate_runs": 0,
             "multi_candidate_fallbacks": 0,
+            # Week 3.1: Cross-Architecture Review tracking
+            "cross_reviews": 0,
+            "cross_review_criticals": 0,
         }
 
         # Mode tracking
@@ -789,6 +812,31 @@ Task: {user_input}"""
                         response_parts.append(
                             "\n\n⚠️ Validation warnings:\n"
                             + "\n".join(f"  - {e}" for e in errors[:5])
+                        )
+
+                # Cross-Architecture Review results (advisory)
+                if mc_result.cross_review_result and not mc_result.cross_review_result.skipped:
+                    cr = mc_result.cross_review_result
+                    self.stats["cross_reviews"] += 1
+                    if cr.has_critical:
+                        self.stats["cross_review_criticals"] += 1
+                    n_issues = len(cr.issues)
+                    yield {"event": "status", "text": f"Cross-review: {n_issues} issues found"}
+                    yield {
+                        "event": "tool_result",
+                        "tool": "cross_review",
+                        "params": {"model": cr.model},
+                        "result": cr.to_dict(),
+                    }
+                    # Append critical issues as warnings to the response
+                    critical_issues = [i for i in cr.issues if i.severity.value == "critical"]
+                    if critical_issues:
+                        response_parts.append(
+                            "\n\n🔍 Cross-review critical issues:\n"
+                            + "\n".join(
+                                f"  - [{i.category}] {i.description}"
+                                for i in critical_issues[:5]
+                            )
                         )
 
                 score_str = f"{mc_result.score:.2f}" if mc_result.score else "N/A"

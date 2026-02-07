@@ -4,6 +4,7 @@ import asyncio
 import pytest
 from dataclasses import dataclass
 from typing import Optional
+from unittest.mock import MagicMock
 
 from core.generation.pipeline import (
     MultiCandidatePipeline,
@@ -11,6 +12,7 @@ from core.generation.pipeline import (
     PipelineResult,
 )
 from core.generation.candidate import CandidateStatus
+from core.observability.metrics import metrics as metrics_registry
 
 
 # ---------------------------------------------------------------------------
@@ -178,3 +180,94 @@ class TestPipeline:
         assert result.validation_time >= 0
         assert result.selection_time >= 0
         assert result.total_time >= result.generation_time
+
+
+class TestCandidateComparison:
+
+    async def test_get_candidate_comparison_returns_all_candidates(self):
+        pipeline = MultiCandidatePipeline(MockLLM())
+        result = await pipeline.run(query="Write fibonacci", n=3)
+
+        comparison = result.get_candidate_comparison()
+        assert len(comparison) == 3
+        for entry in comparison:
+            assert "id" in entry
+            assert "temperature" in entry
+            assert "score" in entry
+            assert "status" in entry
+            assert "validators" in entry
+            assert "code_lines" in entry
+            assert "generation_time" in entry
+
+    async def test_candidate_comparison_sorted_by_score(self):
+        pipeline = MultiCandidatePipeline(MockLLM())
+        result = await pipeline.run(query="Write fibonacci", n=3)
+
+        comparison = result.get_candidate_comparison()
+        scores = [c["score"] for c in comparison]
+        assert scores == sorted(scores, reverse=True)
+
+    async def test_summary_includes_comparison(self):
+        pipeline = MultiCandidatePipeline(MockLLM())
+        result = await pipeline.run(query="test", n=2)
+        s = result.summary()
+        assert "candidate_comparison" in s
+        assert len(s["candidate_comparison"]) == 2
+
+
+class TestPipelineMetrics:
+
+    async def test_metrics_recorded_after_run(self):
+        # Read counter before
+        from core.generation.pipeline import _mc_runs, _mc_candidates
+        before_runs = _mc_runs.get()
+        before_cands = _mc_candidates.get()
+
+        pipeline = MultiCandidatePipeline(MockLLM())
+        await pipeline.run(query="test", n=2)
+
+        # Counter should have incremented
+        assert _mc_runs.get() == before_runs + 1
+        assert _mc_candidates.get() == before_cands + 2
+
+
+class TestCrossReviewInPipeline:
+
+    async def test_cross_review_called_for_security_task(self):
+        mock_reviewer = MagicMock()
+        mock_reviewer.should_review.return_value = True
+        mock_review_result = MagicMock()
+        mock_review_result.issues = []
+        mock_review_result.has_critical = False
+        mock_review_result.model = "mock-haiku"
+        mock_reviewer.review.return_value = mock_review_result
+
+        config = PipelineConfig(n_candidates=2, cross_reviewer=mock_reviewer)
+        pipeline = MultiCandidatePipeline(MockLLM(), config=config)
+        result = await pipeline.run(query="test", swecas_code=500)
+
+        mock_reviewer.should_review.assert_called_once()
+        mock_reviewer.review.assert_called_once()
+        assert result.cross_review_result is mock_review_result
+        assert result.cross_review_time > 0
+
+    async def test_cross_review_skipped_when_no_reviewer(self):
+        config = PipelineConfig(n_candidates=2)
+        pipeline = MultiCandidatePipeline(MockLLM(), config=config)
+        result = await pipeline.run(query="test")
+
+        assert result.cross_review_result is None
+        assert result.cross_review_time == 0.0
+
+    async def test_cross_review_failure_does_not_crash_pipeline(self):
+        mock_reviewer = MagicMock()
+        mock_reviewer.should_review.return_value = True
+        mock_reviewer.review.side_effect = RuntimeError("Claude API down")
+
+        config = PipelineConfig(n_candidates=2, cross_reviewer=mock_reviewer)
+        pipeline = MultiCandidatePipeline(MockLLM(), config=config)
+
+        # Should not raise — cross-review failure is caught
+        result = await pipeline.run(query="test", swecas_code=500)
+        assert result.best is not None
+        assert result.cross_review_result is None
