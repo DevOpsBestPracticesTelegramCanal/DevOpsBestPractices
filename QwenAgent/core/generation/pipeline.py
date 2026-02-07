@@ -155,6 +155,11 @@ class MultiCandidatePipeline:
 
         logger.info("[Pipeline] generated %d candidates in %.2fs", pool.size, generation_time)
 
+        if pool.size == 0:
+            raise RuntimeError(
+                f"All {n} candidates failed to generate (timeout or LLM error)"
+            )
+
         # --- Step 2: Validate ---
         t_val = time.perf_counter()
         self._validate_pool(pool)

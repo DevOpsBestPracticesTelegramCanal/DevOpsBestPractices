@@ -663,7 +663,9 @@ def chat_stream():
                 return
 
             # 2. Try single command (Fast Path)
-            route = router.match(message)
+            # Skip pattern router for code generation tasks → Multi-Candidate in agent
+            _is_codegen = agent and hasattr(agent, '_is_code_generation_task') and agent._is_code_generation_task(message)
+            route = router.match(message) if not _is_codegen else None
 
             if route:
                 print(f"[FAST PATH] Tool: {route['tool']}")

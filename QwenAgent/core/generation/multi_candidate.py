@@ -16,6 +16,7 @@ Usage:
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import List, Optional, Protocol
@@ -126,12 +127,18 @@ class MultiCandidateGenerator:
     async def _parallel(self, task, n: int) -> List[Candidate]:
         coros = [self._one(task, i, n) for i in range(n)]
         try:
-            return list(
-                await asyncio.wait_for(
-                    asyncio.gather(*coros, return_exceptions=True),
-                    timeout=self.cfg.total_timeout,
-                )
+            raw = await asyncio.wait_for(
+                asyncio.gather(*coros, return_exceptions=True),
+                timeout=self.cfg.total_timeout,
             )
+            # Filter out exceptions (return_exceptions=True puts them in list)
+            candidates = []
+            for r in raw:
+                if isinstance(r, Candidate):
+                    candidates.append(r)
+                elif isinstance(r, BaseException):
+                    logger.error("[MultiCandidate] candidate failed: %s", r)
+            return candidates
         except asyncio.TimeoutError:
             logger.error("[MultiCandidate] total timeout (%.0fs)", self.cfg.total_timeout)
             # return whatever finished
@@ -168,6 +175,9 @@ class MultiCandidateGenerator:
         )
 
         elapsed = time.perf_counter() - t0
+
+        # Extract code from markdown fences if model wrapped it
+        code = self._extract_code(code)
 
         candidate = Candidate(
             id=index,
@@ -216,5 +226,15 @@ class MultiCandidateGenerator:
             "You are an expert code generator.\n"
             f"Task type: {task_type.value if task_type else 'general'}\n"
             f"Risk level: {risk.name if risk else 'UNKNOWN'}\n\n"
-            "Generate clean, correct code. Include error handling and comments."
+            "Output ONLY valid source code. No markdown fences, no explanations.\n"
+            "Include error handling and comments inside the code."
         )
+
+    @staticmethod
+    def _extract_code(raw: str) -> str:
+        """Extract code from markdown fences if present."""
+        # Match ```python ... ``` or ``` ... ```
+        m = re.search(r"```(?:python|py)?\s*\n(.*?)```", raw, re.DOTALL)
+        if m:
+            return m.group(1).strip()
+        return raw.strip()

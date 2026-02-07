@@ -61,6 +61,16 @@ from .query_modifier import QueryModifierEngine, ModifierCommands
 # Week 2: Working Memory for multi-step tasks
 from .working_memory import WorkingMemory
 
+# Week 3: Multi-Candidate Generation Pipeline
+try:
+    from .generation.pipeline import MultiCandidatePipeline, PipelineConfig, PipelineResult
+    from .generation.llm_adapter import AsyncLLMAdapter
+    HAS_MULTI_CANDIDATE = True
+except ImportError as _mc_err:
+    HAS_MULTI_CANDIDATE = False
+    MultiCandidatePipeline = None
+    print(f"[MULTI-CANDIDATE] Import failed: {_mc_err}")
+
 
 @dataclass
 class QwenCodeConfig:
@@ -196,6 +206,43 @@ Current working directory: {working_dir}
             enable_adversarial=True
         )
 
+        # Week 3: Multi-Candidate Pipeline
+        # Use StreamingLLMClient (async) directly — avoids nested event loop
+        # from TimeoutLLMClient which breaks aiohttp inside run_sync()
+        self.multi_candidate_pipeline = None
+        if HAS_MULTI_CANDIDATE:
+            try:
+                from .streaming_llm_client import StreamingLLMClient as _StreamingClient
+                mc_timeout = TimeoutConfig(
+                    ttft_timeout=120,   # 2 min — slow 7B model on CPU/small GPU
+                    idle_timeout=60,    # 1 min between tokens
+                    absolute_max=300,   # 5 min absolute ceiling
+                )
+                mc_async_client = _StreamingClient(
+                    base_url=self.config.ollama_url,
+                    timeout_config=mc_timeout,
+                )
+                adapter = AsyncLLMAdapter(
+                    mc_async_client,
+                    model=self.config.model,
+                )
+                from .generation.multi_candidate import MultiCandidateConfig
+                self.multi_candidate_pipeline = MultiCandidatePipeline(
+                    llm=adapter,
+                    config=PipelineConfig(
+                        n_candidates=2,             # 2 candidates for single-GPU
+                        parallel_generation=False,   # Sequential — avoids GPU contention
+                        fail_fast_validation=True,
+                        generation_config=MultiCandidateConfig(
+                            per_candidate_timeout=300.0,  # 5 min per candidate
+                            total_timeout=660.0,          # 11 min total
+                        ),
+                    ),
+                )
+                print(f"[MULTI-CANDIDATE] Initialized (model={self.config.model}, n=2)")
+            except Exception as _mc_init_err:
+                print(f"[MULTI-CANDIDATE] Init failed: {_mc_init_err}")
+
         # Sub-agent manager (needs LLM client)
         self.subagent_manager = SubAgentManager(self._call_llm_simple)
         self.task_tool = TaskTool(self.subagent_manager)
@@ -233,6 +280,9 @@ Current working directory: {working_dir}
             "static_analysis_fixes": 0,
             # Phase 6: Query Modifier tracking
             "query_modifications": 0,
+            # Week 3: Multi-Candidate tracking
+            "multi_candidate_runs": 0,
+            "multi_candidate_fallbacks": 0,
         }
 
         # Mode tracking
@@ -641,10 +691,13 @@ Task: {user_input}"""
             yield {"event": "done"}
             return
 
-        # STEP 1: Try pattern routing (NO-LLM)
+        # STEP 0.5: Detect code generation tasks for Multi-Candidate
+        _is_codegen = self.multi_candidate_pipeline and self._is_code_generation_task(user_input)
+
+        # STEP 1: Try pattern routing (NO-LLM) — skip for code-gen tasks
         route = self.router.route(user_input)
 
-        if route.confidence >= 0.85 and route.tool:
+        if route.confidence >= 0.85 and route.tool and not _is_codegen:
             self.stats["pattern_matches"] += 1
             yield {"event": "tool_start", "tool": route.tool, "params": route.params}
             tool_result = execute_tool(route.tool, **route.params)
@@ -703,6 +756,62 @@ Task: {user_input}"""
                 yield {"event": "response", "text": f"🌐 Search failed: {search_result.get('error', 'No results')}", "route_method": "web_search_only"}
                 yield {"event": "done"}
                 return
+
+        # STEP 1.9: Multi-Candidate Generation (for pure code-gen tasks)
+        if _is_codegen:
+            n_cands = self.multi_candidate_pipeline.config.n_candidates
+            yield {"event": "status", "text": f"Generating {n_cands} code variants..."}
+            swecas_code = None
+            if swecas_result.get("confidence", 0) >= 0.5:
+                try:
+                    swecas_code = int(swecas_result.get("swecas_code", 0))
+                except (ValueError, TypeError):
+                    pass
+            try:
+                mc_result = self.multi_candidate_pipeline.run_sync(
+                    task_id=f"agent_{self.stats['total_requests']}",
+                    query=user_input,
+                    swecas_code=swecas_code,
+                )
+                self.stats["multi_candidate_runs"] += 1
+
+                # Build response
+                response_parts = [mc_result.code]
+                summary = mc_result.summary()
+
+                # Show validation warnings if any
+                if mc_result.best and not mc_result.all_passed:
+                    errors = []
+                    for vs in mc_result.best.validation_scores:
+                        if not vs.passed:
+                            errors.extend(vs.errors[:2])
+                    if errors:
+                        response_parts.append(
+                            "\n\n⚠️ Validation warnings:\n"
+                            + "\n".join(f"  - {e}" for e in errors[:5])
+                        )
+
+                score_str = f"{mc_result.score:.2f}" if mc_result.score else "N/A"
+                yield {"event": "status", "text": f"Best variant selected (score: {score_str}, candidates: {summary.get('candidates_generated', 3)})"}
+                yield {
+                    "event": "tool_start",
+                    "tool": "multi_candidate",
+                    "params": {"n_candidates": summary.get("candidates_generated", 3)},
+                }
+                yield {
+                    "event": "tool_result",
+                    "tool": "multi_candidate",
+                    "params": {"n_candidates": summary.get("candidates_generated", 3)},
+                    "result": summary,
+                }
+                yield {"event": "response", "text": "\n".join(response_parts), "route_method": "multi_candidate"}
+                yield {"event": "done"}
+                return
+
+            except Exception as mc_err:
+                self.stats["multi_candidate_fallbacks"] += 1
+                print(f"[MULTI-CANDIDATE ERROR] {mc_err}, falling back to LLM")
+                yield {"event": "status", "text": "Multi-Candidate failed, falling back to LLM..."}
 
         # STEP 2: LLM processing
         yield {"event": "status", "text": "Thinking..."}
@@ -1562,6 +1671,59 @@ Use /mode fast|deep3|deep|search to switch"""}
         ]
         input_lower = user_input.lower()
         return any(ind in input_lower for ind in complex_indicators)
+
+    # Compiled regex patterns for code-gen detection (class-level, compiled once)
+    _CODEGEN_PATTERNS = [
+        # "write a [lang] function/class/script/code"
+        re.compile(r"write\s+(?:a\s+)?(?:\w+\s+)?(?:function|class|script|code|module|test)\b"),
+        # "create a [lang] function/class/script/dockerfile/makefile"
+        re.compile(r"create\s+(?:a\s+)?(?:\w+\s+)?(?:function|class|script|dockerfile|makefile)\b"),
+        # "implement a/the [lang] ..."
+        re.compile(r"implement\s+(?:a\s+|the\s+)?"),
+        # "generate code/a function/a class"
+        re.compile(r"generate\s+(?:code|a\s+\w*\s*(?:function|class|script))\b"),
+        # "write python/dockerfile/yaml/terraform/makefile"
+        re.compile(r"write\s+(?:python|dockerfile|yaml|terraform|makefile|test)\b"),
+        # Russian patterns
+        re.compile(r"напиши\s+(?:\w+\s+)?(?:функцию|код|класс|скрипт|тест|dockerfile)\b"),
+        re.compile(r"создай\s+(?:\w+\s+)?(?:функцию|класс|скрипт|dockerfile|makefile)\b"),
+        re.compile(r"реализуй\s+"),
+        re.compile(r"сгенерируй\s+"),
+    ]
+    _CODEGEN_EXCLUSIONS = [
+        # File edit/read tasks — NOT code generation
+        re.compile(r"\bedit\s+\w+\.\w+"),
+        re.compile(r"\bmodify\s+\w+\.\w+"),
+        re.compile(r"\bchange\s+\w+\.\w+"),
+        re.compile(r"\bfix\s+in\s+"),
+        re.compile(r"\bread\s+(?:file|the\s+file)\b"),
+        re.compile(r"\.\w{1,4}\s"),  # ".py ", ".yaml ", ".json " etc.
+        re.compile(r"\bфайл\s+\w+"),
+        re.compile(r"\bисправь\s+в\s+"),
+        re.compile(r"\bизмени\s+в\s+"),
+    ]
+
+    def _is_code_generation_task(self, user_input: str) -> bool:
+        """
+        Detect if task is a pure code generation request
+        suitable for Multi-Candidate pipeline.
+
+        Uses regex for flexible matching:
+          YES: "Write a Python function...", "Create a Dockerfile...", "Implement..."
+          NO:  "Read file X", "Edit main.py", "Explain this code"
+        """
+        input_lower = user_input.lower()
+
+        # Step 1: Must match at least one code-gen pattern
+        if not any(p.search(input_lower) for p in self._CODEGEN_PATTERNS):
+            return False
+
+        # Step 2: Must NOT match file-edit exclusions (skip "dockerfile")
+        test_str = input_lower.replace("dockerfile", "dkrfl")
+        if any(p.search(test_str) for p in self._CODEGEN_EXCLUSIONS):
+            return False
+
+        return True
 
     # ==================== DEEP6 MINSKY PROCESSING ====================
 
