@@ -79,6 +79,154 @@ class TestCodegenComplexity:
 
 
 # ---------------------------------------------------------------------------
+# TestRussianQueries — classification with Russian-language queries
+# ---------------------------------------------------------------------------
+
+
+class TestRussianQueries:
+    """Test classify_complexity() and get_strategy() with Russian queries."""
+
+    @pytest.fixture
+    def strategy(self):
+        return AdaptiveStrategy(persist=False)
+
+    # --- CRITICAL ---
+
+    def test_ru_critical_auth(self, strategy):
+        assert strategy.classify_complexity("напиши функцию авторизации пользователя") == CodegenComplexity.CRITICAL
+
+    def test_ru_critical_encryption(self, strategy):
+        assert strategy.classify_complexity("реализуй шифрование данных AES-256") == CodegenComplexity.CRITICAL
+
+    def test_ru_critical_password(self, strategy):
+        assert strategy.classify_complexity("создай функцию хеширования паролей") == CodegenComplexity.CRITICAL
+
+    def test_ru_critical_token(self, strategy):
+        assert strategy.classify_complexity("напиши код для генерации токенов") == CodegenComplexity.CRITICAL
+
+    def test_ru_critical_vulnerability(self, strategy):
+        assert strategy.classify_complexity("проверка уязвимостей SQL инъекций") == CodegenComplexity.CRITICAL
+
+    def test_ru_critical_security(self, strategy):
+        assert strategy.classify_complexity("реализуй модуль безопасности") == CodegenComplexity.CRITICAL
+
+    def test_ru_critical_mutex(self, strategy):
+        assert strategy.classify_complexity("напиши код с мьютексом для синхронизации") == CodegenComplexity.CRITICAL
+
+    def test_ru_critical_crypto(self, strategy):
+        assert strategy.classify_complexity("реализуй криптографический протокол") == CodegenComplexity.CRITICAL
+
+    # --- COMPLEX ---
+
+    def test_ru_complex_parser(self, strategy):
+        assert strategy.classify_complexity("напиши парсер для JSON конфигов") == CodegenComplexity.COMPLEX
+
+    def test_ru_complex_microservice(self, strategy):
+        assert strategy.classify_complexity("создай микросервис для обработки заказов") == CodegenComplexity.COMPLEX
+
+    def test_ru_complex_database(self, strategy):
+        assert strategy.classify_complexity("напиши слой работы с базой данных") == CodegenComplexity.COMPLEX
+
+    def test_ru_complex_algorithm(self, strategy):
+        assert strategy.classify_complexity("реализуй алгоритм Дейкстры") == CodegenComplexity.COMPLEX
+
+    def test_ru_complex_scheduler(self, strategy):
+        assert strategy.classify_complexity("создай планировщик задач с приоритетами") == CodegenComplexity.COMPLEX
+
+    def test_ru_complex_design_pattern(self, strategy):
+        assert strategy.classify_complexity("реализуй паттерн проектирования Observer") == CodegenComplexity.COMPLEX
+
+    def test_ru_complex_state_machine(self, strategy):
+        assert strategy.classify_complexity("напиши конечный автомат для парсинга") == CodegenComplexity.COMPLEX
+
+    def test_ru_complex_distributed(self, strategy):
+        assert strategy.classify_complexity("создай распределённую систему кэширования") == CodegenComplexity.COMPLEX
+
+    # --- TRIVIAL ---
+
+    def test_ru_trivial_hello_world(self, strategy):
+        assert strategy.classify_complexity("напиши привет мир на Python") == CodegenComplexity.TRIVIAL
+
+    def test_ru_trivial_sum_two(self, strategy):
+        assert strategy.classify_complexity("напиши сумму двух чисел") == CodegenComplexity.TRIVIAL
+
+    def test_ru_trivial_reverse_string(self, strategy):
+        assert strategy.classify_complexity("переверни строку") == CodegenComplexity.TRIVIAL
+
+    def test_ru_trivial_palindrome(self, strategy):
+        assert strategy.classify_complexity("проверка на палиндром") == CodegenComplexity.TRIVIAL
+
+    def test_ru_trivial_even_odd(self, strategy):
+        assert strategy.classify_complexity("чётное или нечётное число") == CodegenComplexity.TRIVIAL
+
+    def test_ru_trivial_swap(self, strategy):
+        assert strategy.classify_complexity("поменяй местами два числа") == CodegenComplexity.TRIVIAL
+
+    # --- SIMPLE ---
+
+    def test_ru_simple_sort(self, strategy):
+        assert strategy.classify_complexity("напиши сортировку списка") == CodegenComplexity.SIMPLE
+
+    def test_ru_simple_filter(self, strategy):
+        assert strategy.classify_complexity("фильтрация элементов по условию") == CodegenComplexity.SIMPLE
+
+    def test_ru_simple_read_file(self, strategy):
+        assert strategy.classify_complexity("прочитай файл и выведи содержимое") == CodegenComplexity.SIMPLE
+
+    def test_ru_simple_write_file(self, strategy):
+        assert strategy.classify_complexity("запиши данные в файл CSV") == CodegenComplexity.SIMPLE
+
+    def test_ru_simple_counter(self, strategy):
+        assert strategy.classify_complexity("напиши счётчик слов в тексте") == CodegenComplexity.SIMPLE
+
+    def test_ru_simple_validate_email(self, strategy):
+        assert strategy.classify_complexity("валидация email адреса") == CodegenComplexity.SIMPLE
+
+    def test_ru_simple_list_generator(self, strategy):
+        assert strategy.classify_complexity("напиши генератор списка чётных чисел") == CodegenComplexity.SIMPLE
+
+    # --- Strategy (n_candidates, temperatures) for Russian queries ---
+
+    def test_ru_trivial_strategy(self, strategy):
+        config = strategy.get_strategy("напиши привет мир")
+        assert config.n_candidates == 1
+        assert config.temperatures == (0.2,)
+        assert config.complexity == CodegenComplexity.TRIVIAL
+
+    def test_ru_critical_strategy(self, strategy):
+        config = strategy.get_strategy("реализуй модуль авторизации с токенами")
+        assert config.n_candidates == 3
+        assert config.temperatures == (0.1, 0.4, 0.7)
+        assert config.complexity == CodegenComplexity.CRITICAL
+
+    def test_ru_complex_strategy(self, strategy):
+        config = strategy.get_strategy("создай парсер конфигурационных файлов")
+        assert config.n_candidates == 3
+        assert config.complexity == CodegenComplexity.COMPLEX
+
+    def test_ru_simple_strategy(self, strategy):
+        config = strategy.get_strategy("сортировка массива пузырьком")
+        assert config.n_candidates == 1
+        assert config.temperatures == (0.3,)
+        assert config.complexity == CodegenComplexity.SIMPLE
+
+    # --- Mixed Russian + English queries ---
+
+    def test_ru_mixed_jwt_auth(self, strategy):
+        """Russian query with English technical terms."""
+        assert strategy.classify_complexity("напиши JWT авторизацию для REST API") == CodegenComplexity.CRITICAL
+
+    def test_ru_mixed_docker_microservice(self, strategy):
+        assert strategy.classify_complexity("создай микросервис с Docker и Redis") == CodegenComplexity.COMPLEX
+
+    def test_ru_mixed_hello_world_python(self, strategy):
+        assert strategy.classify_complexity("привет мир на Python 3") == CodegenComplexity.TRIVIAL
+
+    def test_ru_mixed_validate_email(self, strategy):
+        assert strategy.classify_complexity("валидация email через regex") == CodegenComplexity.SIMPLE
+
+
+# ---------------------------------------------------------------------------
 # TestStrategySelection — correct n/temps for each complexity
 # ---------------------------------------------------------------------------
 

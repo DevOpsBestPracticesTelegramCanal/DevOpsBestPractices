@@ -88,32 +88,43 @@ _TIME_PER_CANDIDATE = 24.0
 # ---------------------------------------------------------------------------
 
 _CRITICAL_KEYWORDS = re.compile(
-    r"\b(auth|encrypt|decrypt|jwt|token|security|password|hash|"
+    r"(?:\b(?:auth|encrypt|decrypt|jwt|token|security|password|hash|"
     r"credential|oauth|ssl|tls|certificate|race\s*condition|mutex|"
-    r"lock|semaphore|deadlock|crypto|secret|sanitiz|injection|xss)\b",
+    r"lock|semaphore|deadlock|crypto|secret|sanitiz|injection|xss)\b"
+    r"|(?:авториза|аутентифика|шифрован|дешифрован|токен|безопасност|"
+    r"парол|хеширован|секрет|уязвимост|инъекц|блокировк|мьютекс|криптограф))",
     re.IGNORECASE,
 )
 
 _COMPLEX_KEYWORDS = re.compile(
-    r"\b(middleware|parser|design\s*pattern|api|database|orm|"
+    r"(?:\b(?:middleware|parser|design\s*pattern|api|database|orm|"
     r"websocket|microservice|pipeline|scheduler|queue|cache\s*system|"
     r"state\s*machine|compiler|interpreter|protocol|distributed|"
-    r"algorithm|tree|graph\s*traversal|dynamic\s*programming)\b",
+    r"algorithm|tree|graph\s*traversal|dynamic\s*programming)\b"
+    r"|(?:парсер|паттерн\s*проектирования|баз\w*\s*данн\w*|микросервис|"
+    r"планировщик|очеред|компилятор|интерпретатор|протокол|"
+    r"алгоритм|распределённ|конечн\w*\s*автомат|кэш\s*систем))",
     re.IGNORECASE,
 )
 
 _TRIVIAL_KEYWORDS = re.compile(
-    r"\b(hello\s*world|fizzbuzz|print|add\s*two\s*numbers|"
+    r"(?:\b(?:hello\s*world|fizzbuzz|print|add\s*two\s*numbers|"
     r"sum\s*of|swap\s*two|reverse\s*string|palindrome|"
     r"even\s*or\s*odd|factorial\s*simple|fibonacci\s*simple|"
-    r"count\s*vowels|celsius\s*to|fahrenheit\s*to)\b",
+    r"count\s*vowels|celsius\s*to|fahrenheit\s*to)\b"
+    r"|(?:привет\s*мир|сумм\w*\s*двух\s*чисел|переверн\w*\s*строк|"
+    r"палиндром|чётно\w*\s*или\s*нечётно|факториал\s*прост|"
+    r"поменя\w*\s*местами\s*два|посчита\w*\s*гласн))",
     re.IGNORECASE,
 )
 
 _SIMPLE_KEYWORDS = re.compile(
-    r"\b(sort|filter|map|reduce|validate\s*email|"
+    r"(?:\b(?:sort|filter|map|reduce|validate\s*email|"
     r"read\s*file|write\s*file|format|convert|parse\s*json|"
-    r"calculate|counter|iterate|list\s*comprehension)\b",
+    r"calculate|counter|iterate|list\s*comprehension)\b"
+    r"|(?:сортировк|фильтрац|валидац\w*\s*email|"
+    r"прочита\w*\s*файл|запис\w*\s*в\s*файл|формат\w*\s*дат|"
+    r"конверт|вычисл|счётчик|генератор\s*списк))",
     re.IGNORECASE,
 )
 
