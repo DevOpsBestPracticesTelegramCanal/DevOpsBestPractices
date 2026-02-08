@@ -162,19 +162,32 @@ class HybridRouter:
     """
     Hybrid Router combining:
     - TIER 0: Pattern matching (instant, 85%+)
-    - TIER 1: Intent classification (fast)
+    - TIER 1: Adaptive Neural Router (embeddings, ~20ms)
+    - TIER 1 fallback: Intent classification (keywords)
     - TIER 2: LLM fallback (when needed)
     """
 
     def __init__(self):
         self.pattern_router = PatternRouter()
         self.intent_classifier = IntentClassifier()
+        self._anr = None  # lazy init
         self.stats = {
             'total': 0,
             'pattern_hits': 0,
+            'anr_hits': 0,
             'intent_hits': 0,
             'llm_fallback': 0
         }
+
+    def _get_anr(self):
+        """Lazy-init the Adaptive Neural Router. Returns None if unavailable."""
+        if self._anr is None:
+            try:
+                from core.adaptive_neural_router import AdaptiveNeuralRouter
+                self._anr = AdaptiveNeuralRouter()
+            except Exception:
+                self._anr = False  # permanently disabled
+        return self._anr if self._anr is not False else None
 
     def route(self, user_input: str) -> RouteResult:
         """Route request through hybrid system"""
@@ -186,7 +199,21 @@ class HybridRouter:
             self.stats['pattern_hits'] += 1
             return result
 
-        # TIER 1: Intent classification
+        # TIER 1: Adaptive Neural Router (embedding-based)
+        anr = self._get_anr()
+        if anr:
+            anr_result = anr.route(user_input)
+            if anr_result and anr_result.get('confidence', 0) >= 0.6:
+                self.stats['anr_hits'] += 1
+                return RouteResult(
+                    tool=anr_result['tool'],
+                    params=anr_result['params'],
+                    confidence=anr_result['confidence'],
+                    method='neural',
+                    reasoning=f"ANR: {anr_result['tool']} (conf={anr_result['confidence']:.2f})"
+                )
+
+        # TIER 1 fallback: Intent classification (keyword-based)
         intent, confidence = self.intent_classifier.classify(user_input)
         if confidence >= 0.5 and intent in self.intent_classifier.INTENT_TO_TOOL:
             self.stats['intent_hits'] += 1
@@ -212,10 +239,16 @@ class HybridRouter:
     def get_stats(self) -> Dict[str, Any]:
         """Get routing statistics"""
         total = self.stats['total'] or 1
-        return {
+        anr = self._get_anr()
+        result = {
             **self.stats,
             'pattern_rate': f"{self.stats['pattern_hits']/total*100:.1f}%",
+            'anr_rate': f"{self.stats['anr_hits']/total*100:.1f}%",
             'intent_rate': f"{self.stats['intent_hits']/total*100:.1f}%",
             'llm_rate': f"{self.stats['llm_fallback']/total*100:.1f}%",
-            'no_llm_rate': f"{(self.stats['pattern_hits']+self.stats['intent_hits'])/total*100:.1f}%"
+            'no_llm_rate': f"{(self.stats['pattern_hits']+self.stats['anr_hits']+self.stats['intent_hits'])/total*100:.1f}%",
+            'anr_available': anr is not None,
         }
+        if anr:
+            result['anr_stats'] = anr.get_stats()
+        return result
