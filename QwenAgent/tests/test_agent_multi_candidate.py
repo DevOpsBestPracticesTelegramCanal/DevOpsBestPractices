@@ -188,3 +188,57 @@ class TestCrossReviewInAgent:
         assert agent.stats["cross_reviews"] == 0
         cr_events = [e for e in events if e.get("tool") == "cross_review"]
         assert len(cr_events) == 0
+
+
+class TestAdaptivePathInAgent:
+    """Test Week 4 adaptive strategy integration in process_stream()."""
+
+    def test_adaptive_passes_temperatures(self):
+        """Adaptive config temperatures are forwarded to pipeline.run_sync()."""
+        agent = QwenCodeAgent(QwenCodeConfig(model="qwen2.5-coder:7b"))
+
+        mock_result = MagicMock()
+        mock_result.code = "def foo(): pass"
+        mock_result.score = 0.9
+        mock_result.all_passed = True
+        mock_result.best = MagicMock()
+        mock_result.best.validation_scores = []
+        mock_result.cross_review_result = None
+        mock_result.total_time = 20.0
+        mock_result.summary.return_value = {"candidates_generated": 1}
+
+        agent.multi_candidate_pipeline.run_sync = MagicMock(return_value=mock_result)
+
+        # "Write a function" triggers _is_code_generation_task
+        list(agent.process_stream("Write a function for hello world"))
+
+        call_kwargs = agent.multi_candidate_pipeline.run_sync.call_args
+        assert call_kwargs is not None, "pipeline.run_sync was not called"
+        # Should have temperatures kwarg
+        kw = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+        assert "temperatures" in kw
+
+    def test_adaptive_records_outcome(self):
+        """Adaptive strategy records outcome after successful pipeline run."""
+        agent = QwenCodeAgent(QwenCodeConfig(model="qwen2.5-coder:7b"))
+
+        mock_result = MagicMock()
+        mock_result.code = "def foo(): pass"
+        mock_result.score = 0.85
+        mock_result.all_passed = True
+        mock_result.best = MagicMock()
+        mock_result.best.validation_scores = []
+        mock_result.cross_review_result = None
+        mock_result.total_time = 25.0
+        mock_result.summary.return_value = {"candidates_generated": 1}
+
+        agent.multi_candidate_pipeline.run_sync = MagicMock(return_value=mock_result)
+
+        # Capture history length before call
+        history_before = len(agent.adaptive_strategy._history)
+
+        # "Write a function" triggers _is_code_generation_task
+        list(agent.process_stream("Write a function for hello world"))
+
+        # Adaptive strategy should have recorded exactly 1 new outcome
+        assert len(agent.adaptive_strategy._history) == history_before + 1

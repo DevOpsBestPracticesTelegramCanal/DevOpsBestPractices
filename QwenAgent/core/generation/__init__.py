@@ -13,6 +13,7 @@ from .multi_candidate import MultiCandidateGenerator, MultiCandidateConfig
 from .selector import CandidateSelector, ScoringWeights
 from .llm_adapter import AsyncLLMAdapter
 from .pipeline import MultiCandidatePipeline, PipelineConfig, PipelineResult
+from .adaptive_strategy import AdaptiveStrategy, AdaptiveConfig, CodegenComplexity
 
 __all__ = [
     "Candidate",
@@ -27,4 +28,7 @@ __all__ = [
     "MultiCandidatePipeline",
     "PipelineConfig",
     "PipelineResult",
+    "AdaptiveStrategy",
+    "AdaptiveConfig",
+    "CodegenComplexity",
 ]

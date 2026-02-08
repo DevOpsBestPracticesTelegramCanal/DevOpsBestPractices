@@ -20,7 +20,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
 from .candidate import Candidate, CandidatePool, CandidateStatus, ValidationScore
 from .multi_candidate import MultiCandidateGenerator, MultiCandidateConfig
@@ -50,6 +50,9 @@ _mc_cross_review_duration = metrics_registry.histogram(
     "mc_cross_review_duration_seconds", "Cross-review API call duration",
     buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0),
 )
+_mc_adaptive_complexity = metrics_registry.counter("mc_adaptive_complexity_total", "Adaptive complexity classifications")
+_mc_adaptive_candidates = metrics_registry.counter("mc_adaptive_candidates_used", "Adaptive candidates used")
+_mc_adaptive_time_saved = metrics_registry.counter("mc_adaptive_time_saved_seconds", "Time saved by adaptive strategy")
 
 
 @dataclass
@@ -180,6 +183,7 @@ class MultiCandidatePipeline:
         affected_files: Optional[List[str]] = None,
         swecas_code: Optional[int] = None,
         n: Optional[int] = None,
+        temperatures: Optional[Tuple[float, ...]] = None,
     ) -> PipelineResult:
         """
         Run the full pipeline asynchronously.
@@ -190,6 +194,7 @@ class MultiCandidatePipeline:
             affected_files: Files related to this task.
             swecas_code: SWECAS classification code.
             n: Override number of candidates.
+            temperatures: Override temperatures for generation (None = use defaults).
 
         Returns:
             PipelineResult with best candidate and statistics.
@@ -212,6 +217,7 @@ class MultiCandidatePipeline:
             task,
             n=n,
             parallel=self.config.parallel_generation,
+            temperatures=temperatures,
         )
         generation_time = time.perf_counter() - t_gen
 

@@ -8,6 +8,7 @@ import re
 import json
 import time
 import requests
+from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -65,10 +66,12 @@ from .working_memory import WorkingMemory
 try:
     from .generation.pipeline import MultiCandidatePipeline, PipelineConfig, PipelineResult
     from .generation.llm_adapter import AsyncLLMAdapter
+    from .generation.adaptive_strategy import AdaptiveStrategy
     HAS_MULTI_CANDIDATE = True
 except ImportError as _mc_err:
     HAS_MULTI_CANDIDATE = False
     MultiCandidatePipeline = None
+    AdaptiveStrategy = None
     print(f"[MULTI-CANDIDATE] Import failed: {_mc_err}")
 
 # Week 3.1: Cross-Architecture Review via Claude Haiku
@@ -218,6 +221,7 @@ Current working directory: {working_dir}
         # Use StreamingLLMClient (async) directly — avoids nested event loop
         # from TimeoutLLMClient which breaks aiohttp inside run_sync()
         self.multi_candidate_pipeline = None
+        self.adaptive_strategy = None
         if HAS_MULTI_CANDIDATE:
             try:
                 from .streaming_llm_client import StreamingLLMClient as _StreamingClient
@@ -260,6 +264,17 @@ Current working directory: {working_dir}
                     ),
                 )
                 print(f"[MULTI-CANDIDATE] Initialized (model={self.config.model}, n=2)")
+                # Week 4: Adaptive Temperature Strategy
+                try:
+                    history_dir = Path(self.config.working_dir) / ".qwencode"
+                    self.adaptive_strategy = AdaptiveStrategy(
+                        history_path=str(history_dir / "adaptive_history.json"),
+                        persist=True,
+                    )
+                    print("[ADAPTIVE] Strategy initialized")
+                except Exception as _adp_err:
+                    print(f"[ADAPTIVE] Init failed: {_adp_err}")
+                    self.adaptive_strategy = None
             except Exception as _mc_init_err:
                 print(f"[MULTI-CANDIDATE] Init failed: {_mc_init_err}")
 
@@ -306,6 +321,13 @@ Current working directory: {working_dir}
             # Week 3.1: Cross-Architecture Review tracking
             "cross_reviews": 0,
             "cross_review_criticals": 0,
+            # Week 4: Adaptive Strategy tracking
+            "adaptive_trivial": 0,
+            "adaptive_simple": 0,
+            "adaptive_moderate": 0,
+            "adaptive_complex": 0,
+            "adaptive_critical": 0,
+            "adaptive_time_saved_seconds": 0.0,
         }
 
         # Mode tracking
@@ -782,21 +804,54 @@ Task: {user_input}"""
 
         # STEP 1.9: Multi-Candidate Generation (for pure code-gen tasks)
         if _is_codegen:
-            n_cands = self.multi_candidate_pipeline.config.n_candidates
-            yield {"event": "status", "text": f"Generating {n_cands} code variants..."}
             swecas_code = None
             if swecas_result.get("confidence", 0) >= 0.5:
                 try:
                     swecas_code = int(swecas_result.get("swecas_code", 0))
                 except (ValueError, TypeError):
                     pass
+
+            # Week 4: Adaptive strategy for candidate count & temperatures
+            adaptive_config = None
+            n_cands = self.multi_candidate_pipeline.config.n_candidates
+            temperatures = None
+            if self.adaptive_strategy:
+                adaptive_config = self.adaptive_strategy.get_strategy(user_input, swecas_code)
+                n_cands = adaptive_config.n_candidates
+                temperatures = adaptive_config.temperatures
+                complexity_key = f"adaptive_{adaptive_config.complexity.value}"
+                if complexity_key in self.stats:
+                    self.stats[complexity_key] += 1
+                temps_str = ", ".join(f"{t:.1f}" for t in temperatures)
+                yield {"event": "status", "text": f"Generating {n_cands} code variant{'s' if n_cands > 1 else ''} (complexity: {adaptive_config.complexity.value}, temp: {temps_str})..."}
+            else:
+                yield {"event": "status", "text": f"Generating {n_cands} code variants..."}
+
             try:
                 mc_result = self.multi_candidate_pipeline.run_sync(
                     task_id=f"agent_{self.stats['total_requests']}",
                     query=user_input,
                     swecas_code=swecas_code,
+                    n=n_cands,
+                    temperatures=temperatures,
                 )
                 self.stats["multi_candidate_runs"] += 1
+
+                # Record outcome for adaptive learning
+                if adaptive_config and self.adaptive_strategy:
+                    self.adaptive_strategy.record_outcome(
+                        config=adaptive_config,
+                        best_score=mc_result.score,
+                        all_passed=mc_result.all_passed,
+                        total_time=mc_result.total_time,
+                        query=user_input,
+                        swecas_code=swecas_code,
+                    )
+                    # Track time saved vs default 2 candidates
+                    default_time = 2 * 24.0  # default: 2 candidates @ ~24s each
+                    estimated_time = adaptive_config.estimated_time_seconds
+                    if estimated_time < default_time:
+                        self.stats["adaptive_time_saved_seconds"] += default_time - estimated_time
 
                 # Build response
                 response_parts = [mc_result.code]

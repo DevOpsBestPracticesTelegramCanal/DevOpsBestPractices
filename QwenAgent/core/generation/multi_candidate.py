@@ -19,7 +19,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Protocol
+from typing import List, Optional, Protocol, Tuple
 
 from .candidate import Candidate, CandidatePool
 
@@ -95,30 +95,40 @@ class MultiCandidateGenerator:
         task,  # CodeTask or anything with .task_id, .query, etc.
         n: Optional[int] = None,
         parallel: bool = True,
+        temperatures: Optional[Tuple[float, ...]] = None,
     ) -> CandidatePool:
-        """Generate *n* candidates and return an un-validated pool."""
-        n = n or len(self.cfg.temperatures)
+        """Generate *n* candidates and return an un-validated pool.
+
+        Args:
+            temperatures: Override default temperatures for this request.
+                          None = use config defaults.
+        """
+        self._override_temps = temperatures
+        n = n or len(temperatures or self.cfg.temperatures)
         pool = CandidatePool(task_id=getattr(task, "task_id", "unknown"))
 
         logger.info("[MultiCandidate] generating %d candidates for %s", n, pool.task_id)
 
-        if parallel:
-            candidates = await self._parallel(task, n)
-        else:
-            candidates = await self._sequential(task, n)
+        try:
+            if parallel:
+                candidates = await self._parallel(task, n)
+            else:
+                candidates = await self._sequential(task, n)
 
-        for c in candidates:
-            pool.add(c)
+            for c in candidates:
+                pool.add(c)
 
-        if candidates:
-            avg_t = sum(c.generation_time for c in candidates) / len(candidates)
-            logger.info(
-                "[MultiCandidate] %d candidates generated (avg %.2fs)",
-                len(candidates),
-                avg_t,
-            )
+            if candidates:
+                avg_t = sum(c.generation_time for c in candidates) / len(candidates)
+                logger.info(
+                    "[MultiCandidate] %d candidates generated (avg %.2fs)",
+                    len(candidates),
+                    avg_t,
+                )
 
-        return pool
+            return pool
+        finally:
+            self._override_temps = None
 
     # ------------------------------------------------------------------
     # Internal
@@ -156,7 +166,8 @@ class MultiCandidateGenerator:
         return results
 
     async def _one(self, task, index: int, total: int) -> Candidate:
-        temp = self.cfg.temperatures[index % len(self.cfg.temperatures)]
+        temps = self._override_temps or self.cfg.temperatures
+        temp = temps[index % len(temps)]
         seed = self.cfg.base_seed + index
 
         prompt = self._prompt(task)
