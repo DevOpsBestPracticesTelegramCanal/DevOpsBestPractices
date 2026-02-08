@@ -297,7 +297,47 @@ class CodeLengthRule(Rule):
 
 
 # ---------------------------------------------------------------------------
-# 7. No eval/exec
+# 7. OSS Pattern Alignment
+# ---------------------------------------------------------------------------
+
+class OSSPatternRule(Rule):
+    """Score code based on alignment with OSS pattern consensus.
+
+    Checks for common patterns found in top open-source Python projects:
+    type hints, docstrings, error handling, logging, async patterns,
+    dataclasses, and pathlib usage.
+
+    Advisory only — doesn't block, only influences selection scoring.
+    """
+
+    name = "oss_patterns"
+    severity = RuleSeverity.INFO
+    weight = 1.5
+
+    _POSITIVE_PATTERNS = {
+        "type_hints": r"def\s+\w+\([^)]*:\s*\w+",          # type annotations
+        "docstrings": r'""".*?"""',                           # docstrings
+        "error_handling": r"try:\s*\n",                       # try/except
+        "logging": r"import logging|logger\s*=",              # logging setup
+        "async_patterns": r"async\s+def",                     # async code
+        "dataclass": r"@dataclass",                           # dataclasses
+        "pathlib": r"from pathlib|Path\(",                    # pathlib over os.path
+    }
+
+    def check(self, code: str) -> RuleResult:
+        found = sum(1 for p in self._POSITIVE_PATTERNS.values()
+                    if re.search(p, code, re.DOTALL))
+        total = len(self._POSITIVE_PATTERNS)
+        # 40% coverage = perfect score (not every snippet needs all patterns)
+        score = min(found / max(total * 0.4, 1), 1.0)
+        return self._ok(
+            round(score, 2),
+            [f"OSS alignment: {found}/{total} patterns detected"],
+        )
+
+
+# ---------------------------------------------------------------------------
+# 8. No eval/exec
 # ---------------------------------------------------------------------------
 
 class NoEvalExecRule(Rule):
@@ -347,4 +387,5 @@ def default_python_rules() -> list[Rule]:
         ComplexityRule(),
         DocstringRule(),
         TypeHintRule(),
+        OSSPatternRule(),
     ]

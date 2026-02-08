@@ -82,6 +82,14 @@ except ImportError:
     HAS_CROSS_REVIEW = False
     CrossArchReviewer = None
 
+# Week 8: OSS Consciousness integration
+try:
+    from .oss.oss_tool import OSSTool
+    HAS_OSS = True
+except ImportError:
+    HAS_OSS = False
+    OSSTool = None
+
 
 @dataclass
 class QwenCodeConfig:
@@ -278,6 +286,18 @@ Current working directory: {working_dir}
             except Exception as _mc_init_err:
                 print(f"[MULTI-CANDIDATE] Init failed: {_mc_init_err}")
 
+        # Week 8: OSS Consciousness Tool (for pipeline context enrichment)
+        self.oss_tool = None
+        if HAS_OSS:
+            try:
+                oss_db_path = os.path.join(
+                    self.config.working_dir, ".qwencode", "oss_patterns.db"
+                )
+                self.oss_tool = OSSTool(db_path=oss_db_path)
+                print("[OSS] Tool initialized")
+            except Exception as _oss_err:
+                print(f"[OSS] Init failed: {_oss_err}")
+
         # Sub-agent manager (needs LLM client)
         self.subagent_manager = SubAgentManager(self._call_llm_simple)
         self.task_tool = TaskTool(self.subagent_manager)
@@ -321,6 +341,9 @@ Current working directory: {working_dir}
             # Week 3.1: Cross-Architecture Review tracking
             "cross_reviews": 0,
             "cross_review_criticals": 0,
+            # Week 8: OSS Context tracking
+            "oss_context_hits": 0,
+            "oss_context_patterns_total": 0,
             # Week 4: Adaptive Strategy tracking
             "adaptive_trivial": 0,
             "adaptive_simple": 0,
@@ -771,6 +794,28 @@ Task: {user_input}"""
             yield {"event": "status", "text": f"Bug: SWECAS-{swecas_result.get('swecas_code', '?')} ({swecas_result.get('name', '')})"}
         self._current_swecas = swecas_result
 
+        # STEP 1.85: OSS Context Enrichment (NO-LLM, <10ms)
+        oss_context = ""
+        if _is_codegen and self.oss_tool:
+            try:
+                insight = self.oss_tool.engine.query(user_input)
+                if insight.confidence >= 0.3 and insight.patterns:
+                    oss_lines = []
+                    for p in insight.patterns[:5]:
+                        pname = p.get("pattern_name", "unknown")
+                        rcount = p.get("repo_count", 0)
+                        top = p.get("top_repo", "")
+                        oss_lines.append(
+                            f"- {pname}: used by {rcount} repos"
+                            + (f" (top: {top})" if top else "")
+                        )
+                    oss_context = "\n".join(oss_lines)
+                    self.stats["oss_context_hits"] += 1
+                    self.stats["oss_context_patterns_total"] += len(insight.patterns)
+                    yield {"event": "status", "text": f"OSS context: {len(insight.patterns)} patterns found"}
+            except Exception:
+                pass  # Graceful degradation
+
         # STEP 1.8: SEARCH MODE — чистый веб-поиск БЕЗ LLM
         if self.current_mode == ExecutionMode.SEARCH:
             yield {"event": "status", "text": "🌐 Searching the web..."}
@@ -834,6 +879,7 @@ Task: {user_input}"""
                     swecas_code=swecas_code,
                     n=n_cands,
                     temperatures=temperatures,
+                    oss_context=oss_context,
                 )
                 self.stats["multi_candidate_runs"] += 1
 

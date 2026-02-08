@@ -184,6 +184,7 @@ class MultiCandidatePipeline:
         swecas_code: Optional[int] = None,
         n: Optional[int] = None,
         temperatures: Optional[Tuple[float, ...]] = None,
+        oss_context: str = "",
     ) -> PipelineResult:
         """
         Run the full pipeline asynchronously.
@@ -195,6 +196,7 @@ class MultiCandidatePipeline:
             swecas_code: SWECAS classification code.
             n: Override number of candidates.
             temperatures: Override temperatures for generation (None = use defaults).
+            oss_context: OSS best-practices context to inject into prompts.
 
         Returns:
             PipelineResult with best candidate and statistics.
@@ -212,6 +214,7 @@ class MultiCandidatePipeline:
             query=query,
             affected_files=affected_files or [],
             swecas_code=swecas_code,
+            oss_context=oss_context,
         )
         pool = await self.generator.generate(
             task,
@@ -368,5 +371,6 @@ class _SimpleTask:
     query: str = ""
     affected_files: list = field(default_factory=list)
     swecas_code: Optional[int] = None
+    oss_context: str = ""           # OSS best-practices context for prompt enrichment
     type: object = None
     risk_level: object = None

@@ -260,7 +260,7 @@ def hello() -> str:
     return "world"
 '''
         results = runner.run(code)
-        assert len(results) == 7  # 7 default rules
+        assert len(results) == 8  # 8 default rules (incl. OSSPatternRule)
         assert all(r.passed for r in results)
 
     def test_fail_fast_stops_early(self):

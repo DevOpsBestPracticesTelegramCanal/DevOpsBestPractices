@@ -226,6 +226,10 @@ class MultiCandidateGenerator:
         if swecas:
             parts.append(f"\nSWECAS category: {swecas}")
 
+        oss_ctx = getattr(task, "oss_context", "")
+        if oss_ctx:
+            parts.append(f"\n\nOSS Best Practices (from top GitHub repos):\n{oss_ctx}")
+
         return "\n".join(parts)
 
     @staticmethod
@@ -233,13 +237,19 @@ class MultiCandidateGenerator:
         task_type = getattr(task, "type", None)
         risk = getattr(task, "risk_level", None)
 
-        return (
+        base = (
             "You are an expert code generator.\n"
             f"Task type: {task_type.value if task_type else 'general'}\n"
             f"Risk level: {risk.name if risk else 'UNKNOWN'}\n\n"
             "Output ONLY valid source code. No markdown fences, no explanations.\n"
             "Include error handling and comments inside the code."
         )
+
+        oss_ctx = getattr(task, "oss_context", "")
+        if oss_ctx:
+            base += "\nUse patterns from popular open-source projects when applicable."
+
+        return base
 
     @staticmethod
     def _extract_code(raw: str) -> str:

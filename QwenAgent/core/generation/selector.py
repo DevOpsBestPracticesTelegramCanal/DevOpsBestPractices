@@ -33,6 +33,7 @@ class ScoringWeights:
         "complexity": 1.5,
         "style": 1.0,
         "docstring": 0.5,
+        "oss_patterns": 1.5,      # OSS pattern alignment — advisory
     })
 
     all_passed_bonus: float = 0.15    # +15% if every validator passes

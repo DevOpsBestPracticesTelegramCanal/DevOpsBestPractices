@@ -219,5 +219,5 @@ class TestEdgeCases:
         runner = RuleRunner(default_python_rules())
         # Just verify it works with default args
         results = runner.run(GOOD_CODE)
-        assert len(results) == 7
+        assert len(results) == 8  # 8 default rules (incl. OSSPatternRule)
         assert all(r.passed for r in results)
