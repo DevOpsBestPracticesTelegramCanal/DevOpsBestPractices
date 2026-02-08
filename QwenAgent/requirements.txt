@@ -9,5 +9,8 @@ html2text>=2020.1.16
 # Optional: Cross-Architecture Review via Claude Haiku
 anthropic>=0.39.0
 
+# Optional: Semantic SWECAS classifier (embedding-based)
+sentence-transformers>=2.2.0
+
 # Testing
 pytest>=7.0.0
