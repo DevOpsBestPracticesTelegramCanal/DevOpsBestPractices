@@ -27,7 +27,7 @@ from .multi_candidate import MultiCandidateGenerator, MultiCandidateConfig
 from .selector import CandidateSelector, ScoringWeights
 
 from code_validator.rules.base import RuleRunner, RuleResult
-from code_validator.rules.python_validators import default_python_rules
+from code_validator.rules.python_validators import default_python_rules, build_rules_for_names
 
 from core.observability.metrics import metrics as metrics_registry
 
@@ -53,6 +53,9 @@ _mc_cross_review_duration = metrics_registry.histogram(
 _mc_adaptive_complexity = metrics_registry.counter("mc_adaptive_complexity_total", "Adaptive complexity classifications")
 _mc_adaptive_candidates = metrics_registry.counter("mc_adaptive_candidates_used", "Adaptive candidates used")
 _mc_adaptive_time_saved = metrics_registry.counter("mc_adaptive_time_saved_seconds", "Time saved by adaptive strategy")
+_mc_correction_runs = metrics_registry.counter("mc_correction_runs_total", "Self-correction loop invocations")
+_mc_correction_iterations = metrics_registry.counter("mc_correction_iterations_total", "Total correction iterations")
+_mc_correction_improvements = metrics_registry.counter("mc_correction_improvements_total", "Corrections that improved score")
 
 
 @dataclass
@@ -140,6 +143,9 @@ class PipelineConfig:
     generation_config: Optional[MultiCandidateConfig] = None
     scoring_weights: Optional[ScoringWeights] = None
     cross_reviewer: Optional[Any] = None  # CrossArchReviewer instance (optional)
+    # Week 15: Self-Correction Loop
+    self_correction: bool = False          # Enable iterative error correction
+    max_correction_iterations: int = 3     # Max re-generation attempts
 
 
 class MultiCandidatePipeline:
@@ -185,6 +191,9 @@ class MultiCandidatePipeline:
         n: Optional[int] = None,
         temperatures: Optional[Tuple[float, ...]] = None,
         oss_context: str = "",
+        task_type: object = None,
+        task_risk: object = None,
+        validation_profile: object = None,
     ) -> PipelineResult:
         """
         Run the full pipeline asynchronously.
@@ -197,12 +206,42 @@ class MultiCandidatePipeline:
             n: Override number of candidates.
             temperatures: Override temperatures for generation (None = use defaults).
             oss_context: OSS best-practices context to inject into prompts.
+            task_type: TaskType from Task Abstraction (Week 11). Advisory.
+            task_risk: RiskLevel from Task Abstraction (Week 11). Advisory.
+            validation_profile: ValidationProfile from Task Abstraction (Week 12).
+                When provided, dynamically selects rules and scoring weights.
 
         Returns:
             PipelineResult with best candidate and statistics.
         """
         t_start = time.perf_counter()
         n = n or self.config.n_candidates
+
+        # Week 12: Resolve per-run validator, selector, fail_fast from profile
+        run_validator = self.validator
+        run_selector = self.selector
+        run_fail_fast = self.config.fail_fast_validation
+        run_parallel_val = True
+
+        if validation_profile is not None:
+            try:
+                from core.task_abstraction import TaskAbstraction
+                val_cfg = TaskAbstraction.get_validation_config(validation_profile)
+                rules = build_rules_for_names(val_cfg["rule_names"])
+                if rules:
+                    run_validator = RuleRunner(rules)
+                run_fail_fast = val_cfg.get("fail_fast", run_fail_fast)
+                run_parallel_val = val_cfg.get("parallel", True)
+
+                score_weights = TaskAbstraction.get_scoring_weights(validation_profile)
+                run_selector = CandidateSelector(
+                    scoring=ScoringWeights(weights=score_weights),
+                )
+                profile_name = getattr(validation_profile, "value", str(validation_profile))
+                logger.info("[Pipeline] profile=%s, rules=%d, fail_fast=%s",
+                            profile_name, len(rules), run_fail_fast)
+            except Exception as profile_err:
+                logger.warning("[Pipeline] profile resolution failed: %s, using defaults", profile_err)
 
         logger.info("[Pipeline] starting: task=%s, n=%d", task_id, n)
 
@@ -215,6 +254,8 @@ class MultiCandidatePipeline:
             affected_files=affected_files or [],
             swecas_code=swecas_code,
             oss_context=oss_context,
+            type=task_type,
+            risk_level=task_risk,
         )
         pool = await self.generator.generate(
             task,
@@ -231,16 +272,21 @@ class MultiCandidatePipeline:
                 f"All {n} candidates failed to generate (timeout or LLM error)"
             )
 
-        # --- Step 2: Validate ---
+        # --- Step 2: Validate (profile-aware since Week 12) ---
         t_val = time.perf_counter()
-        self._validate_pool(pool)
+        self._validate_pool(
+            pool,
+            validator=run_validator,
+            fail_fast=run_fail_fast,
+            parallel=run_parallel_val,
+        )
         validation_time = time.perf_counter() - t_val
 
         logger.info("[Pipeline] validated in %.2fs", validation_time)
 
-        # --- Step 3: Select ---
+        # --- Step 3: Select (profile-aware scoring since Week 12) ---
         t_sel = time.perf_counter()
-        best = self.selector.select(pool)
+        best = run_selector.select(pool)
         selection_time = time.perf_counter() - t_sel
 
         # --- Step 4: Cross-Architecture Review (optional, advisory) ---
@@ -330,14 +376,25 @@ class MultiCandidatePipeline:
     # Internal
     # ------------------------------------------------------------------
 
-    def _validate_pool(self, pool: CandidatePool) -> None:
+    def _validate_pool(
+        self,
+        pool: CandidatePool,
+        validator: Optional[RuleRunner] = None,
+        fail_fast: Optional[bool] = None,
+        parallel: bool = True,
+    ) -> None:
         """Run all rules on every candidate in the pool."""
+        validator = validator or self.validator
+        if fail_fast is None:
+            fail_fast = self.config.fail_fast_validation
+
         for candidate in pool.candidates:
             candidate.status = CandidateStatus.VALIDATING
 
-            results: List[RuleResult] = self.validator.run(
+            results: List[RuleResult] = validator.run(
                 candidate.code,
-                fail_fast=self.config.fail_fast_validation,
+                fail_fast=fail_fast,
+                parallel=parallel,
             )
 
             for r in results:

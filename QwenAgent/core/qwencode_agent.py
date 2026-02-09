@@ -74,6 +74,14 @@ except ImportError as _mc_err:
     AdaptiveStrategy = None
     print(f"[MULTI-CANDIDATE] Import failed: {_mc_err}")
 
+# Week 15: Self-Correction Loop
+try:
+    from .generation.self_correction import SelfCorrectionLoop, CorrectionResult
+    HAS_SELF_CORRECTION = True
+except ImportError:
+    HAS_SELF_CORRECTION = False
+    SelfCorrectionLoop = None  # type: ignore
+
 # Week 3.1: Cross-Architecture Review via Claude Haiku
 try:
     from .cross_arch_review import CrossArchReviewer
@@ -100,6 +108,32 @@ except ImportError:
     BigQuerySync = None  # type: ignore
     SyncConfig = None  # type: ignore
     BigQueryConfig = None  # type: ignore
+
+# Week 10: Neo4j Knowledge Graph for OSS pattern co-occurrence
+try:
+    from .oss.neo4j_graph import Neo4jGraph
+    from .oss.graph_builder import GraphBuilder
+    HAS_NEO4J = True
+except ImportError:
+    HAS_NEO4J = False
+    Neo4jGraph = None  # type: ignore
+    GraphBuilder = None  # type: ignore
+
+# Week 11: Task Abstraction Layer
+try:
+    from .task_abstraction import TaskAbstraction, TaskContext, TaskType, RiskLevel, ValidationProfile
+    HAS_TASK_ABSTRACTION = True
+except ImportError:
+    HAS_TASK_ABSTRACTION = False
+    TaskAbstraction = None  # type: ignore
+
+# Week 13: Outcome Feedback Loop
+try:
+    from .outcome_tracker import OutcomeTracker, OutcomeRecord, _query_hash
+    HAS_OUTCOME_TRACKER = True
+except ImportError:
+    HAS_OUTCOME_TRACKER = False
+    OutcomeTracker = None  # type: ignore
 
 
 @dataclass
@@ -328,6 +362,35 @@ Current working directory: {working_dir}
             except Exception as _bq_err:
                 print(f"[BIGQUERY] Init failed: {_bq_err}")
 
+        # Week 10: Neo4j Knowledge Graph for OSS pattern co-occurrence
+        self.neo4j_graph = None
+        self.graph_builder = None
+        if HAS_NEO4J and self.oss_tool is not None:
+            try:
+                self.neo4j_graph = Neo4jGraph()
+                if self.neo4j_graph.is_available():
+                    self.graph_builder = GraphBuilder(
+                        self.oss_tool.store, self.neo4j_graph
+                    )
+                    print("[NEO4J] Graph connected, builder ready")
+                else:
+                    print("[NEO4J] Not available (no URI or connection failed)")
+            except Exception as _neo4j_err:
+                print(f"[NEO4J] Init failed: {_neo4j_err}")
+
+        # Week 11: Task Abstraction Layer
+        self.task_abstraction = TaskAbstraction() if HAS_TASK_ABSTRACTION else None
+
+        # Week 13: Outcome Feedback Loop
+        self.outcome_tracker = None
+        if HAS_OUTCOME_TRACKER:
+            try:
+                _ot_path = os.path.join(self.config.workspace_dir, ".qwencode", "outcomes.db")
+                os.makedirs(os.path.dirname(_ot_path), exist_ok=True)
+                self.outcome_tracker = OutcomeTracker(db_path=_ot_path)
+            except Exception as _ot_err:
+                print(f"[OUTCOME] Init failed: {_ot_err}")
+
         # Sub-agent manager (needs LLM client)
         self.subagent_manager = SubAgentManager(self._call_llm_simple)
         self.task_tool = TaskTool(self.subagent_manager)
@@ -386,6 +449,34 @@ Current working directory: {working_dir}
             "bq_repos_added": 0,
             "bq_patterns_added": 0,
             "bq_cost_usd": 0.0,
+            # Week 10: Neo4j Knowledge Graph tracking
+            "neo4j_syncs": 0,
+            "neo4j_nodes_total": 0,
+            "neo4j_rels_total": 0,
+            "neo4j_cooccurrences": 0,
+            # Week 11: Task Abstraction tracking
+            "task_type_command": 0,
+            "task_type_code_gen": 0,
+            "task_type_bug_fix": 0,
+            "task_type_refactor": 0,
+            "task_type_explain": 0,
+            "task_type_search": 0,
+            "task_type_general": 0,
+            "risk_low": 0,
+            "risk_medium": 0,
+            "risk_high": 0,
+            "risk_critical": 0,
+            # Week 13: Outcome Feedback Loop tracking
+            "outcomes_recorded": 0,
+            "outcomes_all_passed": 0,
+            # Week 14: Outcome-Driven Profile Adaptation
+            "profile_overrides": 0,
+            "profile_override_improved": 0,
+            # Week 15: Self-Correction Loop
+            "correction_runs": 0,
+            "correction_iterations_total": 0,
+            "correction_improvements": 0,
+            "correction_all_passed_after": 0,  # Times correction led to all_passed
         }
 
         # Mode tracking
@@ -851,6 +942,60 @@ Task: {user_input}"""
             except Exception:
                 pass  # Graceful degradation
 
+        # STEP 1.86: Task Abstraction — unified classification (NO-LLM, <1ms)
+        task_context = None
+        if self.task_abstraction:
+            _ta_complexity = "MODERATE"
+            if self.adaptive_strategy and _is_codegen:
+                try:
+                    _ta_swecas = int(swecas_result.get("swecas_code", 0)) if swecas_result.get("confidence", 0) >= 0.5 else None
+                    _ta_complexity = self.adaptive_strategy.classify_complexity(user_input, _ta_swecas).value.upper()
+                except Exception:
+                    pass
+            task_context = self.task_abstraction.classify(
+                query=user_input,
+                ducs_result=ducs_result,
+                swecas_result=swecas_result,
+                is_codegen=_is_codegen,
+                is_command=False,  # commands already returned at STEP 1
+                complexity=_ta_complexity,
+                execution_mode=self.current_mode,
+            )
+            # Track stats
+            type_key = f"task_type_{task_context.task_type.value}"
+            if type_key in self.stats:
+                self.stats[type_key] += 1
+            risk_key = f"risk_{task_context.risk_level.value}"
+            if risk_key in self.stats:
+                self.stats[risk_key] += 1
+            yield {"event": "status", "text": f"Task: {task_context.task_type.value} | Risk: {task_context.risk_level.value} | Profile: {task_context.validation_profile.value}"}
+
+            # Week 14: Outcome-Driven Profile Adaptation
+            if self.outcome_tracker and _is_codegen and HAS_TASK_ABSTRACTION:
+                try:
+                    from .task_abstraction import ValidationProfile as _VP
+                    suggested = self.outcome_tracker.suggest_profile(
+                        task_type=task_context.task_type.value,
+                        complexity=task_context.complexity,
+                    )
+                    if suggested and suggested != task_context.validation_profile.value:
+                        # Convert string → enum
+                        try:
+                            new_profile = _VP(suggested)
+                            old_profile = task_context.validation_profile
+                            task_context.validation_profile = new_profile
+                            # Update derived fields from new profile
+                            from .task_abstraction import _PROFILE_CONFIGS
+                            new_cfg = _PROFILE_CONFIGS.get(new_profile, {})
+                            task_context.fail_fast = new_cfg.get("fail_fast", task_context.fail_fast)
+                            task_context.parallel_validation = new_cfg.get("parallel", task_context.parallel_validation)
+                            self.stats["profile_overrides"] += 1
+                            yield {"event": "status", "text": f"Profile override: {old_profile.value} -> {new_profile.value} (learned from {self.outcome_tracker.get_total_outcomes()} outcomes)"}
+                        except ValueError:
+                            pass  # Unknown profile value
+                except Exception:
+                    pass  # Graceful degradation
+
         # STEP 1.8: SEARCH MODE — чистый веб-поиск БЕЗ LLM
         if self.current_mode == ExecutionMode.SEARCH:
             yield {"event": "status", "text": "🌐 Searching the web..."}
@@ -908,15 +1053,67 @@ Task: {user_input}"""
                 yield {"event": "status", "text": f"Generating {n_cands} code variants..."}
 
             try:
-                mc_result = self.multi_candidate_pipeline.run_sync(
+                _pipeline_kwargs = dict(
                     task_id=f"agent_{self.stats['total_requests']}",
                     query=user_input,
                     swecas_code=swecas_code,
                     n=n_cands,
                     temperatures=temperatures,
                     oss_context=oss_context,
+                    task_type=task_context.task_type if task_context else None,
+                    task_risk=task_context.risk_level if task_context else None,
+                    validation_profile=task_context.validation_profile if task_context else None,
                 )
+                mc_result = self.multi_candidate_pipeline.run_sync(**_pipeline_kwargs)
                 self.stats["multi_candidate_runs"] += 1
+
+                # Week 15: Self-Correction Loop — re-generate with error feedback
+                correction_result = None
+                if (
+                    HAS_SELF_CORRECTION
+                    and not mc_result.all_passed
+                    and mc_result.score >= 0.1
+                    and mc_result.code
+                ):
+                    try:
+                        loop = SelfCorrectionLoop(
+                            self.multi_candidate_pipeline,
+                            max_iterations=3,
+                        )
+
+                        def _on_iter(iteration, attempt):
+                            pass  # SSE events yielded below via correction_result
+
+                        # Remove query from kwargs (SelfCorrectionLoop has its own)
+                        sc_kwargs = {k: v for k, v in _pipeline_kwargs.items() if k != "query" and k != "task_id"}
+                        correction_result = loop.run_sync(
+                            query=user_input,
+                            task_id=_pipeline_kwargs["task_id"],
+                            **sc_kwargs,
+                        )
+                        self.stats["correction_runs"] += 1
+                        self.stats["correction_iterations_total"] += correction_result.total_iterations
+
+                        if correction_result.corrected:
+                            self.stats["correction_improvements"] += 1
+                        if correction_result.all_passed and not mc_result.all_passed:
+                            self.stats["correction_all_passed_after"] += 1
+
+                        # Use the corrected result if it's better
+                        if correction_result.best_pipeline_result and correction_result.best_score > mc_result.score:
+                            mc_result = correction_result.best_pipeline_result
+                            yield {
+                                "event": "status",
+                                "text": f"Self-correction improved score: {correction_result.initial_score:.2f} -> {correction_result.final_score:.2f} ({correction_result.total_iterations} iterations)",
+                            }
+                        elif correction_result.total_iterations > 1:
+                            yield {
+                                "event": "status",
+                                "text": f"Self-correction: no improvement after {correction_result.total_iterations} iterations",
+                            }
+
+                    except Exception as sc_err:
+                        logger.warning("[SELF-CORRECTION] Error: %s", sc_err)
 
                 # Record outcome for adaptive learning
                 if adaptive_config and self.adaptive_strategy:
@@ -933,6 +1130,38 @@ Task: {user_input}"""
                     estimated_time = adaptive_config.estimated_time_seconds
                     if estimated_time < default_time:
                         self.stats["adaptive_time_saved_seconds"] += default_time - estimated_time
+
+                # Week 13: Record outcome in unified tracker
+                if self.outcome_tracker and mc_result.best:
+                    try:
+                        _passed = [vs.validator_name for vs in mc_result.best.validation_scores if vs.passed]
+                        _failed = [vs.validator_name for vs in mc_result.best.validation_scores if not vs.passed]
+                        _all_run = [vs.validator_name for vs in mc_result.best.validation_scores]
+                        self.outcome_tracker.record(OutcomeRecord(
+                            query_hash=_query_hash(user_input),
+                            task_type=task_context.task_type.value if task_context else "general",
+                            risk_level=task_context.risk_level.value if task_context else "medium",
+                            validation_profile=task_context.validation_profile.value if task_context else "balanced",
+                            complexity=task_context.complexity if task_context else "MODERATE",
+                            n_candidates=n_cands,
+                            best_score=mc_result.score,
+                            all_passed=mc_result.all_passed,
+                            generation_time=mc_result.generation_time,
+                            validation_time=mc_result.validation_time,
+                            total_time=mc_result.total_time,
+                            rules_run=",".join(_all_run),
+                            rules_passed=",".join(_passed),
+                            rules_failed=",".join(_failed),
+                            n_rules_run=len(_all_run),
+                            n_rules_passed=len(_passed),
+                            n_rules_failed=len(_failed),
+                            swecas_code=swecas_code,
+                        ))
+                        self.stats["outcomes_recorded"] += 1
+                        if mc_result.all_passed:
+                            self.stats["outcomes_all_passed"] += 1
+                    except Exception:
+                        pass  # Graceful degradation
 
                 # Build response
                 response_parts = [mc_result.code]

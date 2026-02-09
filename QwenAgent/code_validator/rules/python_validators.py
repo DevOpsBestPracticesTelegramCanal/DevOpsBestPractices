@@ -8,7 +8,7 @@ fast, fine-grained scoring that feeds the Multi-Candidate selector.
 
 import ast
 import re
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from .base import Rule, RuleResult, RuleSeverity
 
@@ -389,3 +389,29 @@ def default_python_rules() -> list[Rule]:
         TypeHintRule(),
         OSSPatternRule(),
     ]
+
+
+# Name → constructor mapping for profile-driven rule selection (Week 12)
+_RULE_REGISTRY: Dict[str, type] = {
+    "ast_syntax": ASTSyntaxRule,
+    "no_forbidden_imports": NoForbiddenImportsRule,
+    "no_eval_exec": NoEvalExecRule,
+    "code_length": CodeLengthRule,
+    "complexity": ComplexityRule,
+    "docstring": DocstringRule,
+    "type_hints": TypeHintRule,
+    "oss_patterns": OSSPatternRule,
+}
+
+
+def build_rules_for_names(names: List[str]) -> List[Rule]:
+    """Build a list of Rule instances from rule names.
+
+    Unknown names are silently skipped to allow forward-compatibility.
+    """
+    rules = []
+    for name in names:
+        cls = _RULE_REGISTRY.get(name)
+        if cls is not None:
+            rules.append(cls())
+    return rules

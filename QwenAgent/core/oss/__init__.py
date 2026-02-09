@@ -19,10 +19,19 @@ try:
 except ImportError:
     HAS_BIGQUERY = False
 
+# Neo4j Knowledge Graph integration (optional, requires neo4j)
+try:
+    from core.oss.neo4j_graph import Neo4jGraph
+    from core.oss.graph_builder import GraphBuilder, SyncStats as Neo4jSyncStats
+    HAS_NEO4J = True
+except ImportError:
+    HAS_NEO4J = False
+
 __all__ = [
     "PatternStore", "RepoRecord", "PatternRecord",
     "RepoAnalyzer", "RepoPattern",
     "GitHubCollector", "RepoMeta",
     "OSSEngine", "OSSInsight",
     "HAS_BIGQUERY",
+    "HAS_NEO4J",
 ]
