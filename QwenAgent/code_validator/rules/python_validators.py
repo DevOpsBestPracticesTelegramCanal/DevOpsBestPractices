@@ -403,6 +403,27 @@ _RULE_REGISTRY: Dict[str, type] = {
     "oss_patterns": OSSPatternRule,
 }
 
+# Week 16: Register DevOps external validators (graceful if module not yet available)
+try:
+    from .devops_validators import (
+        YamllintValidator,
+        KubevalValidator,
+        KubeLinterValidator,
+        TflintValidator,
+        CheckovValidator,
+        ActionlintValidator,
+    )
+    _RULE_REGISTRY.update({
+        "yamllint": YamllintValidator,
+        "kubeval": KubevalValidator,
+        "kube-linter": KubeLinterValidator,
+        "tflint": TflintValidator,
+        "checkov": CheckovValidator,
+        "actionlint": ActionlintValidator,
+    })
+except ImportError:
+    pass
+
 
 def build_rules_for_names(names: List[str]) -> List[Rule]:
     """Build a list of Rule instances from rule names.

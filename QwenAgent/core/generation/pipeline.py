@@ -28,6 +28,7 @@ from .selector import CandidateSelector, ScoringWeights
 
 from code_validator.rules.base import RuleRunner, RuleResult
 from code_validator.rules.python_validators import default_python_rules, build_rules_for_names
+from code_validator.rules.devops_validators import detect_content_type, rules_for_content_type
 
 from core.observability.metrics import metrics as metrics_registry
 
@@ -279,6 +280,7 @@ class MultiCandidatePipeline:
             validator=run_validator,
             fail_fast=run_fail_fast,
             parallel=run_parallel_val,
+            validation_profile=validation_profile,
         )
         validation_time = time.perf_counter() - t_val
 
@@ -382,8 +384,13 @@ class MultiCandidatePipeline:
         validator: Optional[RuleRunner] = None,
         fail_fast: Optional[bool] = None,
         parallel: bool = True,
+        validation_profile: Optional[Any] = None,
     ) -> None:
-        """Run all rules on every candidate in the pool."""
+        """Run all rules on every candidate in the pool.
+
+        Week 16: For non-Python content (Kubernetes, Terraform, etc.), detects
+        the content type and substitutes DevOps-specific validators.
+        """
         validator = validator or self.validator
         if fail_fast is None:
             fail_fast = self.config.fail_fast_validation
@@ -391,7 +398,19 @@ class MultiCandidatePipeline:
         for candidate in pool.candidates:
             candidate.status = CandidateStatus.VALIDATING
 
-            results: List[RuleResult] = validator.run(
+            # Week 16: detect content type and swap validators for DevOps code
+            run_validator = validator
+            content_type = detect_content_type(candidate.code)
+            if content_type not in ("python", "unknown"):
+                devops_rules = rules_for_content_type(content_type)
+                if devops_rules:
+                    run_validator = RuleRunner(devops_rules)
+                    logger.info(
+                        "[Pipeline] candidate content_type=%s, using %d DevOps rules",
+                        content_type, len(devops_rules),
+                    )
+
+            results: List[RuleResult] = run_validator.run(
                 candidate.code,
                 fail_fast=fail_fast,
                 parallel=parallel,
