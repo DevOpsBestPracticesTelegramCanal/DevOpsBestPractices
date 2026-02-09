@@ -12,5 +12,8 @@ anthropic>=0.39.0
 # Optional: Semantic SWECAS classifier (embedding-based)
 sentence-transformers>=2.2.0
 
+# Optional: BigQuery OSS pattern discovery (zero-cost edition)
+google-cloud-bigquery>=3.10.0
+
 # Testing
 pytest>=7.0.0

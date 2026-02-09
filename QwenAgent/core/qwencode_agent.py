@@ -90,6 +90,17 @@ except ImportError:
     HAS_OSS = False
     OSSTool = None
 
+# Week 9: BigQuery OSS pattern discovery
+try:
+    from .oss.bigquery_sync import BigQuerySync, SyncConfig
+    from .oss.bigquery_collector import BigQueryConfig
+    HAS_BIGQUERY = True
+except ImportError:
+    HAS_BIGQUERY = False
+    BigQuerySync = None  # type: ignore
+    SyncConfig = None  # type: ignore
+    BigQueryConfig = None  # type: ignore
+
 
 @dataclass
 class QwenCodeConfig:
@@ -298,6 +309,25 @@ Current working directory: {working_dir}
             except Exception as _oss_err:
                 print(f"[OSS] Init failed: {_oss_err}")
 
+        # Week 9: BigQuery OSS pattern sync (background daemon)
+        self.bq_sync = None
+        if HAS_BIGQUERY and self.oss_tool is not None:
+            try:
+                bq_cfg = BigQueryConfig(
+                    cost_history_path=os.path.join(
+                        self.config.working_dir, ".qwencode", "bigquery_costs.json"
+                    ),
+                )
+                sync_cfg = SyncConfig(bq_config=bq_cfg)
+                self.bq_sync = BigQuerySync(self.oss_tool.store, sync_cfg)
+                if self.bq_sync.enabled:
+                    self.bq_sync.start()
+                    print("[BIGQUERY] Sync daemon started")
+                else:
+                    print("[BIGQUERY] Not enabled (no credentials or disabled)")
+            except Exception as _bq_err:
+                print(f"[BIGQUERY] Init failed: {_bq_err}")
+
         # Sub-agent manager (needs LLM client)
         self.subagent_manager = SubAgentManager(self._call_llm_simple)
         self.task_tool = TaskTool(self.subagent_manager)
@@ -351,6 +381,11 @@ Current working directory: {working_dir}
             "adaptive_complex": 0,
             "adaptive_critical": 0,
             "adaptive_time_saved_seconds": 0.0,
+            # Week 9: BigQuery sync tracking
+            "bq_syncs": 0,
+            "bq_repos_added": 0,
+            "bq_patterns_added": 0,
+            "bq_cost_usd": 0.0,
         }
 
         # Mode tracking
