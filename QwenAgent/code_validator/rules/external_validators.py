@@ -32,10 +32,14 @@ class ExternalRule(Rule):
         - _build_command(filepath) -> List[str]
         - _parse_output(stdout, stderr, returncode) -> RuleResult
         - _file_suffix() -> str  (e.g. ".py")
+
+    Per-rule timeout: set ``timeout`` class attribute to override the default.
+    Week 17: configurable per-rule timeouts (fast=2s, medium=5s, slow=15s).
     """
 
     severity = RuleSeverity.WARNING
     weight = 1.0
+    timeout: int = SUBPROCESS_TIMEOUT  # per-rule override (seconds)
 
     def check(self, code: str) -> RuleResult:
         suffix = self._file_suffix()
@@ -50,20 +54,26 @@ class ExternalRule(Rule):
             except OSError:
                 pass
 
+    @property
+    def effective_timeout(self) -> int:
+        """Return the timeout this rule uses (per-rule or global default)."""
+        return self.timeout
+
     def _run(self, filepath: str) -> RuleResult:
         cmd = self._build_command(filepath)
+        t = self.effective_timeout
         try:
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=SUBPROCESS_TIMEOUT,
+                timeout=t,
             )
             return self._parse_output(proc.stdout, proc.stderr, proc.returncode)
         except FileNotFoundError:
             return self._ok(1.0, [f"{self.name}: tool not installed (skipped)"])
         except subprocess.TimeoutExpired:
-            return self._fail(0.5, [f"{self.name}: timed out after {SUBPROCESS_TIMEOUT}s"])
+            return self._fail(0.5, [f"{self.name}: timed out after {t}s"])
 
     @abstractmethod
     def _build_command(self, filepath: str) -> List[str]:

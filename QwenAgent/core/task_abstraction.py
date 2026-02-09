@@ -129,10 +129,11 @@ _EXPLANATION_RE = re.compile(
 )
 
 _INFRASTRUCTURE_RE = re.compile(
-    r'(?:\b(?:kubernetes|k8s|terraform|helm|ansible|yaml|github\s*actions?|'
-    r'dockerfile|docker\-compose|kustomize|argocd|flux|istio|'
-    r'nginx\s+ingress|service\s+mesh|ci/?cd|pipeline|workflow)\b'
-    r'|(?:кубернет|терраформ|хельм|ансибл))',
+    r'(?:\b(?:kubernetes|k8s|terraform|helm|ansible|playbook|yaml|github\s*actions?|'
+    r'dockerfile|docker[\-\s]compose|kustomize|argocd|flux|istio|'
+    r'nginx\s+ingress|service\s+mesh|ci/?cd|pipeline|workflow|'
+    r'shellcheck|bash\s+script|shell\s+script|helm\s+chart)\b'
+    r'|(?:кубернет|терраформ|хельм|ансибл|плейбук|баш\s+скрипт))',
     re.IGNORECASE,
 )
 
@@ -141,7 +142,10 @@ _DEVOPS_RULE_NAMES: Dict[str, List[str]] = {
     "kubernetes": ["yamllint", "kubeval", "kube-linter"],
     "terraform": ["tflint", "checkov"],
     "github_actions": ["yamllint", "actionlint"],
-    "ansible": ["yamllint"],
+    "ansible": ["yamllint", "ansible-lint"],
+    "helm": ["helm-lint"],
+    "bash": ["shellcheck"],
+    "docker_compose": ["yamllint", "docker-compose"],
     "yaml": ["yamllint"],
 }
 

@@ -3,7 +3,8 @@ Pluggable Rule-Based Validators for Multi-Candidate scoring.
 
 In-process rules are lightweight and fast (no subprocess).
 External rules shell out to CLI tools (ruff, mypy, hadolint) for deeper checks.
-DevOps rules (Week 16) cover Kubernetes, Terraform, GitHub Actions, and YAML.
+DevOps rules (Week 16-17) cover Kubernetes, Terraform, GitHub Actions, Ansible,
+Helm, Bash, Docker Compose, and YAML.
 """
 
 from .base import Rule, RuleResult, RuleSeverity, RuleRunner
@@ -32,11 +33,18 @@ from .devops_validators import (
     TflintValidator,
     CheckovValidator,
     ActionlintValidator,
+    AnsibleLintValidator,
+    ShellCheckValidator,
+    HelmLintValidator,
+    DockerComposeValidator,
     detect_content_type,
     devops_external_rules,
     kubernetes_rules,
     terraform_rules,
     ansible_rules,
+    helm_rules,
+    bash_rules,
+    docker_compose_rules,
     github_actions_rules,
     yaml_rules,
     rules_for_content_type,
@@ -64,18 +72,25 @@ __all__ = [
     "HadolintValidator",
     "default_external_rules",
     "python_external_rules",
-    # devops (Week 16)
+    # devops (Week 16-17)
     "YamllintValidator",
     "KubevalValidator",
     "KubeLinterValidator",
     "TflintValidator",
     "CheckovValidator",
     "ActionlintValidator",
+    "AnsibleLintValidator",
+    "ShellCheckValidator",
+    "HelmLintValidator",
+    "DockerComposeValidator",
     "detect_content_type",
     "devops_external_rules",
     "kubernetes_rules",
     "terraform_rules",
     "ansible_rules",
+    "helm_rules",
+    "bash_rules",
+    "docker_compose_rules",
     "github_actions_rules",
     "yaml_rules",
     "rules_for_content_type",

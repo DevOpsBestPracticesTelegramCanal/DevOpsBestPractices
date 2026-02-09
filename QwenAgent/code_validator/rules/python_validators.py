@@ -403,7 +403,7 @@ _RULE_REGISTRY: Dict[str, type] = {
     "oss_patterns": OSSPatternRule,
 }
 
-# Week 16: Register DevOps external validators (graceful if module not yet available)
+# Week 16-17: Register DevOps external validators (graceful if module not yet available)
 try:
     from .devops_validators import (
         YamllintValidator,
@@ -412,6 +412,10 @@ try:
         TflintValidator,
         CheckovValidator,
         ActionlintValidator,
+        AnsibleLintValidator,
+        ShellCheckValidator,
+        HelmLintValidator,
+        DockerComposeValidator,
     )
     _RULE_REGISTRY.update({
         "yamllint": YamllintValidator,
@@ -420,6 +424,10 @@ try:
         "tflint": TflintValidator,
         "checkov": CheckovValidator,
         "actionlint": ActionlintValidator,
+        "ansible-lint": AnsibleLintValidator,
+        "shellcheck": ShellCheckValidator,
+        "helm-lint": HelmLintValidator,
+        "docker-compose": DockerComposeValidator,
     })
 except ImportError:
     pass
