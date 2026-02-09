@@ -1,0 +1,37 @@
+# Secrets & credentials
+.env
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# QwenCode runtime
+.qwencode/
+nul
+
+# Test / cache
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+
+# Backups
+*.bak
+compute.bak
