@@ -147,6 +147,12 @@ class PatternRouter:
                 'grep',
                 self._parse_grep
             ),
+            # "find files with validator in name" → glob **/*validator*
+            (
+                re.compile(r'^find\s+(?:all\s+)?files?\s+(?:with|containing|named)\s+["\']?(\w[\w.-]*)["\']?\s+in\s+(?:name|filename)', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": f"**/*{m.group(1)}*"}
+            ),
             # FIND (умный поиск)
             (
                 re.compile(r'^find\s+(.+)$', re.IGNORECASE),
@@ -279,6 +285,26 @@ class PatternRouter:
                 'glob',
                 self._parse_glob
             ),
+            # --- Name-substring glob: "найди файлы с X в имени [в path]" ---
+            # With path: "найди файлы с validator в имени в core/"
+            (
+                re.compile(r'^(?:найди|покажи|найти)\s+(?:все\s+)?файл[ыа]?\s+с\s+["\']?(\w[\w.-]*)["\']?\s+в\s+(?:имени|названи)\w*\s+(?:в\s+)?(.+)$', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": f"**/*{m.group(1)}*", "path": m.group(2).strip().rstrip('/')}
+            ),
+            # Without path: "найди файлы с validator в имени"
+            (
+                re.compile(r'^(?:найди|покажи|найти)\s+(?:все\s+)?файл[ыа]?\s+с\s+["\']?(\w[\w.-]*)["\']?\s+в\s+(?:имени|названи)', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": f"**/*{m.group(1)}*"}
+            ),
+            # "найди файлы содержащие validator" / "найди файлы с именем config"
+            (
+                re.compile(r'^(?:найди|покажи|найти)\s+(?:все\s+)?файл[ыа]?\s+(?:содержащие|с именем)\s+["\']?(\w[\w.-]*)["\']?\s*$', re.IGNORECASE),
+                'glob',
+                lambda m: {"pattern": f"**/*{m.group(1)}*"}
+            ),
+
             # Natural language file search: "найди все .py файлы в core/"
             (
                 re.compile(r'^(?:найди|покажи|выведи)\s+(?:все\s+)?\.?(\w+)\s+файл[ыа]?\s+(?:в\s+)?(.+)$', re.IGNORECASE),

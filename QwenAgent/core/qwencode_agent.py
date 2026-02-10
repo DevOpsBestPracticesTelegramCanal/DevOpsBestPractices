@@ -62,6 +62,9 @@ from .query_modifier import QueryModifierEngine, ModifierCommands
 # Week 2: Working Memory for multi-step tasks
 from .working_memory import WorkingMemory
 
+# Week 20: Token Streaming (async-to-sync bridge)
+from .token_streamer import SyncTokenStreamer, create_token_streamer
+
 # Week 3: Multi-Candidate Generation Pipeline
 try:
     from .generation.pipeline import MultiCandidatePipeline, PipelineConfig, PipelineResult
@@ -185,6 +188,8 @@ WHEN TO USE TOOLS (ALWAYS):
 - "show file" → [TOOL: read(file_path="...")]
 - "list files" → [TOOL: ls(path=".")]
 - "find files" → [TOOL: glob(pattern="**/*.py")]
+- "find files with X in name" → [TOOL: glob(pattern="**/*X*")]
+- "найди файлы с X в имени" → [TOOL: glob(pattern="**/*X*")]
 - "search for X" → [TOOL: grep(pattern="X")]
 
 WHEN NOT TO USE TOOLS (text answer only):
@@ -385,7 +390,7 @@ Current working directory: {working_dir}
         self.outcome_tracker = None
         if HAS_OUTCOME_TRACKER:
             try:
-                _ot_path = os.path.join(self.config.workspace_dir, ".qwencode", "outcomes.db")
+                _ot_path = os.path.join(self.config.working_dir, ".qwencode", "outcomes.db")
                 os.makedirs(os.path.dirname(_ot_path), exist_ok=True)
                 self.outcome_tracker = OutcomeTracker(db_path=_ot_path)
             except Exception as _ot_err:
@@ -1086,8 +1091,8 @@ Task: {user_input}"""
                 self.stats["multi_candidate_runs"] += 1
 
                 # Phase 1+2: pipeline_candidate events (one per candidate, with validation details)
-                if mc_result.candidates:
-                    for i, cand in enumerate(mc_result.candidates):
+                if mc_result.pool and mc_result.pool.candidates:
+                    for i, cand in enumerate(mc_result.pool.candidates):
                         # Build validators dict for Phase 2 validation matrix
                         validators = {}
                         if hasattr(cand, 'validation_scores'):
@@ -1127,7 +1132,7 @@ Task: {user_input}"""
                     "event": "pipeline_result",
                     "score": mc_result.score,
                     "all_passed": mc_result.all_passed,
-                    "n_candidates": len(mc_result.candidates) if mc_result.candidates else 0,
+                    "n_candidates": mc_result.pool.size if mc_result.pool else 0,
                     "generation_time": mc_result.generation_time,
                     "validation_time": mc_result.validation_time,
                     "total_time": mc_result.total_time,
@@ -1318,14 +1323,36 @@ Task: {user_input}"""
                     "params": {"n_candidates": summary.get("candidates_generated", 3)},
                     "result": summary,
                 }
-                yield {"event": "response", "text": "\n".join(response_parts), "route_method": "multi_candidate"}
+
+                # Week 20: Stream winning code as simulated tokens
+                _full_response = "\n".join(response_parts)
+                _mc_msg_id = f"mc_{int(time.time() * 1000)}"
+                yield {"event": "response_start", "message_id": _mc_msg_id}
+                _mc_chunk = 3
+                for _ci in range(0, len(_full_response), _mc_chunk):
+                    yield {"event": "response_token", "token": _full_response[_ci:_ci + _mc_chunk], "message_id": _mc_msg_id}
+                yield {"event": "response_done", "content": _full_response, "message_id": _mc_msg_id}
+                # Also yield classic response for non-streaming consumers
+                yield {"event": "response", "text": _full_response, "route_method": "multi_candidate"}
                 yield {"event": "done"}
                 return
 
             except Exception as mc_err:
                 self.stats["multi_candidate_fallbacks"] += 1
-                print(f"[MULTI-CANDIDATE ERROR] {mc_err}, falling back to LLM")
-                yield {"event": "status", "text": "Multi-Candidate failed, falling back to LLM..."}
+                import traceback
+                _tb = traceback.format_exc()
+                print(f"[MULTI-CANDIDATE ERROR] {type(mc_err).__name__}: {mc_err}", flush=True)
+                print(_tb, flush=True)
+                # Also write to file for debugging
+                try:
+                    import tempfile
+                    _err_path = os.path.join(tempfile.gettempdir(), "mc_error.log")
+                    with open(_err_path, "w") as _f:
+                        _f.write(f"{type(mc_err).__name__}: {mc_err}\n{_tb}")
+                    print(f"[MC-ERROR] Written to {_err_path}", flush=True)
+                except Exception:
+                    pass
+                yield {"event": "status", "text": f"Multi-Candidate failed ({type(mc_err).__name__}), falling back to LLM..."}
 
         # STEP 2: LLM processing
         yield {"event": "status", "text": "Thinking..."}
@@ -1487,6 +1514,14 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
                     if thinking:
                         yield {"event": "thinking", "steps": thinking}
 
+                # Week 20: Stream the final response as token events
+                _msg_id = f"llm_{int(time.time() * 1000)}"
+                yield {"event": "response_start", "message_id": _msg_id}
+                _chunk_size = 3
+                for _i in range(0, len(llm_response), _chunk_size):
+                    yield {"event": "response_token", "token": llm_response[_i:_i + _chunk_size], "message_id": _msg_id}
+                yield {"event": "response_done", "content": llm_response, "message_id": _msg_id}
+                # Also yield classic response event for non-streaming consumers
                 yield {"event": "response", "text": llm_response, "route_method": "llm"}
                 break
 
@@ -1615,6 +1650,88 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
             if self.config.verbose:
                 print(f"Ollama Error: {e}")
             return None
+
+    def _call_llm_streaming(self, prompt: str, system: str = None, max_time: float = None):
+        """
+        Week 20: Streaming LLM call — yields tokens one by one.
+
+        Uses SyncTokenStreamer to bridge the async StreamingLLMClient.
+        Falls back to buffered _call_llm() on any error.
+
+        Args:
+            prompt: User prompt
+            system: System prompt
+            max_time: Maximum time for this call
+
+        Yields:
+            Individual tokens (str) as they arrive from the LLM.
+        """
+        try:
+            # Build full prompt with history (same as _call_llm)
+            full_prompt = ""
+            if system:
+                full_prompt = f"System: {system}\n\n"
+
+            for msg in self.conversation_history[-8:]:
+                role = "User" if msg["role"] == "user" else "Assistant"
+                full_prompt += f"{role}: {msg['content']}\n\n"
+
+            full_prompt += f"User: {prompt}\n\nAssistant:"
+
+            # Need a StreamingLLMClient instance
+            # Reuse the one from multi-candidate pipeline if available
+            streaming_client = None
+            if hasattr(self, 'multi_candidate_pipeline') and self.multi_candidate_pipeline:
+                adapter = getattr(self.multi_candidate_pipeline, '_adapter', None)
+                if adapter and hasattr(adapter, '_client'):
+                    streaming_client = adapter._client
+
+            if not streaming_client:
+                # Try to create one directly
+                try:
+                    from .streaming_llm_client import StreamingLLMClient as _SC
+                    streaming_client = _SC(base_url=self.config.ollama_url)
+                except ImportError:
+                    streaming_client = None
+
+            if not streaming_client:
+                # No streaming client available — fall back to buffered
+                result = self._call_llm(prompt, system, max_time)
+                if result:
+                    yield result
+                return
+
+            # Get timeout config
+            mode_budget = self.user_prefs.get_mode_budget(self.current_mode.value)
+            if max_time is not None and max_time < float('inf'):
+                effective_budget = min(mode_budget, max_time)
+            else:
+                effective_budget = mode_budget
+
+            timeout_override = TimeoutConfig(
+                ttft_timeout=min(self.timeout_config.ttft_timeout, effective_budget * 0.3),
+                idle_timeout=min(self.timeout_config.idle_timeout, effective_budget * 0.2),
+                absolute_max=effective_budget
+            )
+
+            streamer = create_token_streamer(
+                streaming_client=streaming_client,
+                prompt=full_prompt,
+                model=self.config.model,
+                timeout_override=timeout_override,
+                timeout=effective_budget,
+            )
+
+            for token in streamer:
+                yield token
+
+        except Exception as e:
+            if self.config.verbose:
+                print(f"[STREAMING] Error: {e}, falling back to buffered _call_llm")
+            # Fallback: yield the entire buffered response as one chunk
+            result = self._call_llm(prompt, system, max_time)
+            if result:
+                yield result
 
     def _call_llm_search(self, prompt: str) -> Optional[str]:
         """
@@ -2209,21 +2326,27 @@ Use /mode fast|deep3|deep|search to switch"""}
 
     # Compiled regex patterns for code-gen detection (class-level, compiled once)
     _CODEGEN_PATTERNS = [
-        # "write a [lang] function/class/script/code"
-        re.compile(r"write\s+(?:a\s+)?(?:\w+\s+)?(?:function|class|script|code|module|test)\b"),
-        # "create a [lang] function/class/script/dockerfile/makefile"
-        re.compile(r"create\s+(?:a\s+)?(?:\w+\s+)?(?:function|class|script|dockerfile|makefile)\b"),
-        # "implement a/the [lang] ..."
+        # --- English patterns (broad) ---
+        # "write/create/generate ... in Python/Java/etc"
+        re.compile(r"(?:write|create|generate|implement|make|build)\s+.*\b(?:in|using|with)\s+(?:python|java|javascript|typescript|c\+\+|c#|go|rust|php|ruby)\b"),
+        # "write a function/class/script/code/program/algorithm/dockerfile/makefile"
+        re.compile(r"(?:write|create|generate)\s+(?:a\s+)?(?:\w+\s+)?(?:function|class|script|code|module|test|program|algorithm|method|dockerfile|makefile|yaml|terraform)\b"),
+        # "implement a/the ..."
         re.compile(r"implement\s+(?:a\s+|the\s+)?"),
-        # "generate code/a function/a class"
-        re.compile(r"generate\s+(?:code|a\s+\w*\s*(?:function|class|script))\b"),
-        # "write python/dockerfile/yaml/terraform/makefile"
-        re.compile(r"write\s+(?:python|dockerfile|yaml|terraform|makefile|test)\b"),
-        # Russian patterns
-        re.compile(r"напиши\s+(?:\w+\s+)?(?:функцию|код|класс|скрипт|тест|dockerfile)\b"),
-        re.compile(r"создай\s+(?:\w+\s+)?(?:функцию|класс|скрипт|dockerfile|makefile)\b"),
+        # Common algorithm/DS names → codegen intent
+        re.compile(r"\b(?:bubble\s*sort|quick\s*sort|merge\s*sort|insertion\s*sort|selection\s*sort|binary\s*search|linked\s*list|hash\s*table|binary\s*tree|stack|queue)\b.*\b(?:in|python|java|implement|write|code)\b"),
+        # "python/java/... code/function/script for ..."
+        re.compile(r"\b(?:python|java|javascript|go|rust)\s+(?:code|function|script|program)\s+(?:for|to|that)\b"),
+        # "code a/the ..."
+        re.compile(r"\bcode\s+(?:a|the)\s+"),
+        # --- Russian patterns (broad) ---
+        re.compile(r"(?:напиши|написать|напишите)\s+"),
+        re.compile(r"(?:создай|создать|создайте)\s+(?:\w+\s+)?(?:функцию|класс|скрипт|код|модуль|тест|сортировку|алгоритм|программу|dockerfile|makefile)"),
         re.compile(r"реализуй\s+"),
-        re.compile(r"сгенерируй\s+"),
+        re.compile(r"(?:сгенерируй|сгенерировать)\s+"),
+        re.compile(r"(?:закодируй|закодировать|запрограммируй|запрограммировать)\s+"),
+        # "сортировку/алгоритм ... на Python"
+        re.compile(r"(?:сортировк|алгоритм|структур)\w*\s+.*\b(?:на|в)\s+(?:python|java|питоне)"),
     ]
     _CODEGEN_EXCLUSIONS = [
         # File edit/read tasks — NOT code generation
