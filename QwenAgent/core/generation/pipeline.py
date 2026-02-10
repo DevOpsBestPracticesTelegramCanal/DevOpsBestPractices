@@ -17,8 +17,11 @@ Sync usage (for Flask/Orchestrator):
 """
 
 import asyncio
+import hashlib
 import logging
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple
 
@@ -26,7 +29,7 @@ from .candidate import Candidate, CandidatePool, CandidateStatus, ValidationScor
 from .multi_candidate import MultiCandidateGenerator, MultiCandidateConfig
 from .selector import CandidateSelector, ScoringWeights
 
-from code_validator.rules.base import RuleRunner, RuleResult
+from code_validator.rules.base import RuleRunner, RuleResult, RuleSeverity
 from code_validator.rules.python_validators import default_python_rules, build_rules_for_names
 from code_validator.rules.devops_validators import detect_content_type, rules_for_content_type
 
@@ -61,6 +64,9 @@ _mc_validation_speedup = metrics_registry.histogram(
     "mc_validation_speedup", "Parallel validation speedup ratio",
     buckets=(1.0, 1.2, 1.5, 2.0, 3.0, 5.0),
 )
+_mc_validation_cache_hits = metrics_registry.counter(
+    "mc_validation_cache_hits", "Validation cache hits",
+)
 
 
 @dataclass
@@ -75,6 +81,10 @@ class ValidationStats:
     speedup: float = 1.0
     max_workers_used: int = 0
 
+    # Week 19: Validation Result Cache
+    cache_hits: int = 0
+    cache_misses: int = 0
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "parallel": self.parallel,
@@ -84,7 +94,96 @@ class ValidationStats:
             "parallel_actual": round(self.parallel_actual, 4),
             "speedup": round(self.speedup, 2),
             "max_workers_used": self.max_workers_used,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
         }
+
+
+class ValidationCache:
+    """In-memory LRU cache for validation results. Thread-safe."""
+
+    def __init__(self, max_size: int = 256):
+        self._max_size = max_size
+        self._cache: OrderedDict[str, list] = OrderedDict()
+        self._lock = threading.Lock()
+        self._hits = 0
+        self._misses = 0
+
+    @staticmethod
+    def _make_key(code: str, rule_names: List[str]) -> str:
+        normalized = code.strip()
+        sorted_names = sorted(rule_names)
+        payload = f"{normalized}||{'|'.join(sorted_names)}"
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def get(self, code: str, rule_names: List[str]) -> Optional[list]:
+        key = self._make_key(code, rule_names)
+        with self._lock:
+            if key in self._cache:
+                self._hits += 1
+                self._cache.move_to_end(key)
+                return self._cache[key]
+            self._misses += 1
+            return None
+
+    def put(self, code: str, rule_names: List[str], results: list) -> None:
+        key = self._make_key(code, rule_names)
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                self._cache[key] = results
+            else:
+                if len(self._cache) >= self._max_size:
+                    self._cache.popitem(last=False)
+                self._cache[key] = results
+
+    def get_stats(self) -> dict:
+        with self._lock:
+            total = self._hits + self._misses
+            return {
+                "cache_size": len(self._cache),
+                "max_size": self._max_size,
+                "cache_hits": self._hits,
+                "cache_misses": self._misses,
+                "hit_rate_percent": round(
+                    (self._hits / total * 100) if total > 0 else 0.0, 1
+                ),
+            }
+
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+            self._hits = 0
+            self._misses = 0
+
+
+def _serialize_rule_results(results: List[RuleResult]) -> list:
+    """Serialize RuleResult objects for cache storage."""
+    return [
+        {
+            "rule_name": r.rule_name,
+            "passed": r.passed,
+            "score": r.score,
+            "severity": r.severity.value,
+            "messages": list(r.messages),
+        }
+        for r in results
+    ]
+
+
+def _deserialize_rule_results(data: list) -> List[RuleResult]:
+    """Deserialize cached validation results back to RuleResult objects."""
+    return [
+        RuleResult(
+            rule_name=d["rule_name"],
+            passed=d["passed"],
+            score=d["score"],
+            severity=RuleSeverity(d["severity"]),
+            messages=list(d["messages"]),
+            duration=0.0,
+        )
+        for d in data
+    ]
 
 
 @dataclass
@@ -181,6 +280,9 @@ class PipelineConfig:
     # Week 18: Parallel Candidate Validation
     parallel_candidate_validation: bool = True
     max_validation_workers: int = 4
+    # Week 19: Validation Result Cache
+    validation_cache_enabled: bool = True
+    max_validation_cache_size: int = 256
 
 
 class MultiCandidatePipeline:
@@ -212,6 +314,13 @@ class MultiCandidatePipeline:
         self.selector = CandidateSelector(
             scoring=self.config.scoring_weights,
         )
+
+        # Week 19: Validation Result Cache
+        self._validation_cache: Optional[ValidationCache] = None
+        if self.config.validation_cache_enabled:
+            self._validation_cache = ValidationCache(
+                max_size=self.config.max_validation_cache_size,
+            )
 
     # ------------------------------------------------------------------
     # Public API
@@ -436,11 +545,27 @@ class MultiCandidatePipeline:
                     content_type, len(devops_rules),
                 )
 
-        results: List[RuleResult] = run_validator.run(
-            candidate.code,
-            fail_fast=fail_fast,
-            parallel=parallel,
-        )
+        # Week 19: Check validation cache
+        rule_names = [r.name for r in run_validator.rules]
+        cached = None
+        if self._validation_cache is not None:
+            cached = self._validation_cache.get(candidate.code, rule_names)
+
+        if cached is not None:
+            results = _deserialize_rule_results(cached)
+            _mc_validation_cache_hits.inc()
+            logger.debug("[Pipeline] cache hit for candidate #%d", candidate.id)
+        else:
+            results: List[RuleResult] = run_validator.run(
+                candidate.code,
+                fail_fast=fail_fast,
+                parallel=parallel,
+            )
+            if self._validation_cache is not None:
+                self._validation_cache.put(
+                    candidate.code, rule_names,
+                    _serialize_rule_results(results),
+                )
 
         for r in results:
             candidate.add_validation(
@@ -486,6 +611,10 @@ class MultiCandidatePipeline:
         )
         n_workers = min(pool.size, self.config.max_validation_workers)
 
+        # Week 19: snapshot cache counters before validation
+        _hits_before = self._validation_cache._hits if self._validation_cache else 0
+        _misses_before = self._validation_cache._misses if self._validation_cache else 0
+
         t0 = time.perf_counter()
         per_candidate_times: List[float] = []
 
@@ -522,6 +651,10 @@ class MultiCandidatePipeline:
         sequential_estimate = sum(per_candidate_times)
         speedup = sequential_estimate / parallel_actual if parallel_actual > 0 else 1.0
 
+        # Week 19: compute cache deltas for this batch
+        cache_hits = (self._validation_cache._hits if self._validation_cache else 0) - _hits_before
+        cache_misses = (self._validation_cache._misses if self._validation_cache else 0) - _misses_before
+
         stats = ValidationStats(
             parallel=use_parallel,
             n_candidates=pool.size,
@@ -530,6 +663,8 @@ class MultiCandidatePipeline:
             parallel_actual=parallel_actual,
             speedup=speedup,
             max_workers_used=n_workers if use_parallel else 1,
+            cache_hits=cache_hits,
+            cache_misses=cache_misses,
         )
 
         if use_parallel:
