@@ -510,13 +510,17 @@ class MultiCandidatePipeline:
             # Already in an async context (nest_asyncio)
             import nest_asyncio
             nest_asyncio.apply()
-            return loop.run_until_complete(self.run(**kwargs))
+            result = loop.run_until_complete(self.run(**kwargs))
         else:
             loop = asyncio.new_event_loop()
             try:
-                return loop.run_until_complete(self.run(**kwargs))
+                result = loop.run_until_complete(self.run(**kwargs))
             finally:
                 loop.close()
+
+        # Phase 2: Store last result for REST API access
+        self._last_result = result
+        return result
 
     # ------------------------------------------------------------------
     # Internal

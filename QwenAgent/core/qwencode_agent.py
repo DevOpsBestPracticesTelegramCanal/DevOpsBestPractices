@@ -969,6 +969,16 @@ Task: {user_input}"""
             if risk_key in self.stats:
                 self.stats[risk_key] += 1
             yield {"event": "status", "text": f"Task: {task_context.task_type.value} | Risk: {task_context.risk_level.value} | Profile: {task_context.validation_profile.value}"}
+            # Phase 1: Emit task_context for Pipeline Monitor
+            yield {
+                "event": "task_context",
+                "task_type": task_context.task_type.value,
+                "risk_level": task_context.risk_level.value,
+                "validation_profile": task_context.validation_profile.value,
+                "complexity": task_context.complexity,
+                "swecas_code": swecas_result.get("swecas_code") if swecas_result.get("confidence", 0) >= 0.5 else None,
+                "ducs_code": ducs_result.get("ducs_code") if ducs_result.get("confidence", 0) >= 0.5 else None,
+            }
 
             # Week 14: Outcome-Driven Profile Adaptation
             if self.outcome_tracker and _is_codegen and HAS_TASK_ABSTRACTION:
@@ -1064,8 +1074,67 @@ Task: {user_input}"""
                     task_risk=task_context.risk_level if task_context else None,
                     validation_profile=task_context.validation_profile if task_context else None,
                 )
+                # Phase 1: pipeline_start event
+                yield {
+                    "event": "pipeline_start",
+                    "n_candidates": n_cands,
+                    "complexity": adaptive_config.complexity.value if adaptive_config else "unknown",
+                    "temperatures": temperatures or [],
+                    "validation_profile": task_context.validation_profile.value if task_context else "balanced",
+                }
                 mc_result = self.multi_candidate_pipeline.run_sync(**_pipeline_kwargs)
                 self.stats["multi_candidate_runs"] += 1
+
+                # Phase 1+2: pipeline_candidate events (one per candidate, with validation details)
+                if mc_result.candidates:
+                    for i, cand in enumerate(mc_result.candidates):
+                        # Build validators dict for Phase 2 validation matrix
+                        validators = {}
+                        if hasattr(cand, 'validation_scores'):
+                            for vs in cand.validation_scores:
+                                validators[vs.validator_name] = {
+                                    "passed": vs.passed,
+                                    "score": vs.score,
+                                    "errors": vs.errors[:5] if vs.errors else [],
+                                    "warnings": vs.warnings[:3] if vs.warnings else [],
+                                    "duration": vs.duration,
+                                }
+                        yield {
+                            "event": "pipeline_candidate",
+                            "id": cand.id if hasattr(cand, 'id') else i + 1,
+                            "temperature": getattr(cand, 'temperature', 0),
+                            "score": cand.total_score if hasattr(cand, 'total_score') else 0,
+                            "all_passed": getattr(cand, 'all_passed', False),
+                            "status": "passed" if getattr(cand, 'all_passed', False) else "failed",
+                            "generation_time": getattr(cand, 'generation_time', 0),
+                            "code": cand.code if hasattr(cand, 'code') else "",
+                            "code_lines": cand.code_lines if hasattr(cand, 'code_lines') else 0,
+                            "validators": validators,
+                        }
+
+                    # Phase 2: pipeline_validation event — full comparison data
+                    try:
+                        comparison = mc_result.get_candidate_comparison()
+                        yield {
+                            "event": "pipeline_validation",
+                            "candidates": comparison,
+                        }
+                    except Exception:
+                        pass  # Graceful degradation
+
+                # Phase 1: pipeline_result event
+                _pm_result = {
+                    "event": "pipeline_result",
+                    "score": mc_result.score,
+                    "all_passed": mc_result.all_passed,
+                    "n_candidates": len(mc_result.candidates) if mc_result.candidates else 0,
+                    "generation_time": mc_result.generation_time,
+                    "validation_time": mc_result.validation_time,
+                    "total_time": mc_result.total_time,
+                }
+                if mc_result.validation_stats:
+                    _pm_result["validation_stats"] = mc_result.validation_stats.to_dict() if hasattr(mc_result.validation_stats, 'to_dict') else {}
+                yield _pm_result
 
                 # Week 15: Self-Correction Loop — re-generate with error feedback
                 correction_result = None
@@ -1076,6 +1145,12 @@ Task: {user_input}"""
                     and mc_result.code
                 ):
                     try:
+                        # Phase 1: correction_start event
+                        yield {
+                            "event": "correction_start",
+                            "max_iterations": 3,
+                            "initial_score": mc_result.score,
+                        }
                         loop = SelfCorrectionLoop(
                             self.multi_candidate_pipeline,
                             max_iterations=3,
@@ -1098,6 +1173,32 @@ Task: {user_input}"""
                             self.stats["correction_improvements"] += 1
                         if correction_result.all_passed and not mc_result.all_passed:
                             self.stats["correction_all_passed_after"] += 1
+
+                        # Phase 3: correction_iteration events (from recorded attempts)
+                        if correction_result.attempts:
+                            for attempt in correction_result.attempts:
+                                yield {
+                                    "event": "correction_iteration",
+                                    "iteration": attempt.iteration,
+                                    "score": attempt.best_score,
+                                    "all_passed": attempt.all_passed,
+                                    "errors": attempt.errors[:10],
+                                    "time": attempt.total_time,
+                                    "code": attempt.code[:5000] if attempt.code else None,
+                                    "n_candidates": attempt.n_candidates,
+                                    "generation_time": attempt.generation_time,
+                                    "validation_time": attempt.validation_time,
+                                }
+
+                        # Phase 1: correction_result event
+                        yield {
+                            "event": "correction_result",
+                            "initial_score": correction_result.initial_score,
+                            "final_score": correction_result.final_score,
+                            "total_iterations": correction_result.total_iterations,
+                            "corrected": correction_result.corrected,
+                            "all_passed": correction_result.all_passed,
+                        }
 
                         # Use the corrected result if it's better
                         if correction_result.best_pipeline_result and correction_result.best_score > mc_result.score:
@@ -1251,25 +1352,33 @@ Task: {user_input}"""
         if is_deep6:
             yield {"event": "status", "text": "Deep6 Minsky: Starting 6-step pipeline..."}
 
-            # Define streaming callback
-            def on_step_stream(step_name: str, output: str):
-                pass  # We'll yield events after execution
+            # Collect step events for post-execution yield
+            _deep6_step_events = []
+
+            def _on_step_sse(step_num, name, status, data):
+                _deep6_step_events.append({
+                    "event": "deep_step",
+                    "step": step_num,
+                    "name": name,
+                    "status": status,
+                    "data": data or {},
+                })
 
             # Execute Deep6 pipeline
             deep6_result = self.deep6_engine.execute(
                 query=user_input,
                 context=pre_read_context.get("content", "")[:2000] if pre_read_context else "",
                 verbose=False,
-                on_step=on_step_stream
+                on_step=_on_step_sse,
             )
 
             self.stats["deep6_sessions"] += 1
             if deep6_result.rollback_reasons:
                 self.stats["deep6_rollbacks"] += len(deep6_result.rollback_reasons)
 
-            # Yield step events
-            for step_name in deep6_result.call_sequence:
-                yield {"event": "status", "text": f"Deep6: {step_name}"}
+            # Phase 6: Yield all deep_step SSE events
+            for evt in _deep6_step_events:
+                yield evt
 
             # Yield rollback events if any
             for reason in deep6_result.rollback_reasons:
@@ -1279,9 +1388,9 @@ Task: {user_input}"""
             if deep6_result.audit_results:
                 audit = deep6_result.audit_results[-1]
                 yield {"event": "thinking", "steps": [
-                    f"Risk Score: {audit.overall_risk_score}/10",
-                    f"Decision: {audit.decision}",
-                    f"Vulnerabilities: {len(audit.vulnerabilities_found)}"
+                    f"Risk Score: {getattr(audit, 'overall_risk_score', 0)}/10",
+                    f"Decision: {getattr(audit, 'decision', 'N/A')}",
+                    f"Vulnerabilities: {len(getattr(audit, 'vulnerabilities_found', []))}"
                 ]}
 
             # Yield final response
@@ -1398,6 +1507,19 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
 
                 # Week 2: Update working memory with each tool result
                 memory.update_from_tool_result(tool_name, params, tool_result)
+
+                # Phase 7: Yield working memory state for UI visualization
+                yield {
+                    "event": "working_memory",
+                    "iteration": iteration,
+                    "goal": memory.goal or "",
+                    "plan": [{"desc": s.description, "status": s.status.value} for s in memory.plan],
+                    "facts": dict(memory.facts),
+                    "decisions": list(memory.decisions),
+                    "tool_log": [{"tool": t.tool, "summary": t.summary, "success": t.success} for t in memory.tool_log],
+                    "current_step": memory._current_step,
+                    "tool_just_executed": tool_name,
+                }
 
             current_prompt = self._build_continuation_prompt(tool_results, memory=memory)
 

@@ -186,6 +186,53 @@ def sse_approval_resolved(request_id: str, approved: bool, choice: str) -> str:
     })
 
 
+# Phase 1: Pipeline Monitor SSE helpers
+
+def sse_task_context(data: Dict) -> str:
+    """Task context event — after TaskAbstraction.classify()"""
+    return sse_event("task_context", data)
+
+
+def sse_pipeline_start(data: Dict) -> str:
+    """Pipeline start event — before pipeline.run_sync()"""
+    return sse_event("pipeline_start", data)
+
+
+def sse_pipeline_candidate(data: Dict) -> str:
+    """Per-candidate progress event"""
+    return sse_event("pipeline_candidate", data)
+
+
+def sse_pipeline_result(data: Dict) -> str:
+    """Pipeline result event — after pipeline completes"""
+    return sse_event("pipeline_result", data)
+
+
+def sse_correction_start(data: Dict) -> str:
+    """Self-correction loop start"""
+    return sse_event("correction_start", data)
+
+
+def sse_correction_iteration(data: Dict) -> str:
+    """Self-correction iteration event"""
+    return sse_event("correction_iteration", data)
+
+
+def sse_correction_result(data: Dict) -> str:
+    """Self-correction loop result"""
+    return sse_event("correction_result", data)
+
+
+def sse_working_memory(data: Dict) -> str:
+    """Working memory state update — after each tool execution"""
+    return sse_event("working_memory", data)
+
+
+def sse_checkpoint_saved(data: Dict) -> str:
+    """Checkpoint saved confirmation"""
+    return sse_event("checkpoint_saved", data)
+
+
 # ============================================================================
 # RESULT FORMATTERS
 # ============================================================================
@@ -770,6 +817,28 @@ def chat_stream():
                             yield sse_response(evt.get("text", ""), evt.get("route_method", "agent"))
                         elif evt_type == "done":
                             pass  # we emit our own done below
+                        # Phase 1: Pipeline Monitor events — passthrough
+                        elif evt_type == "task_context":
+                            yield sse_task_context(evt)
+                        elif evt_type == "pipeline_start":
+                            yield sse_pipeline_start(evt)
+                        elif evt_type == "pipeline_candidate":
+                            yield sse_pipeline_candidate(evt)
+                        elif evt_type == "pipeline_result":
+                            yield sse_pipeline_result(evt)
+                        elif evt_type == "pipeline_validation":
+                            yield sse_event("pipeline_validation", evt)
+                        elif evt_type == "correction_start":
+                            yield sse_correction_start(evt)
+                        elif evt_type == "correction_iteration":
+                            yield sse_correction_iteration(evt)
+                        elif evt_type == "correction_result":
+                            yield sse_correction_result(evt)
+                        elif evt_type == "deep_step":
+                            yield sse_event("deep_step", evt)
+                        # Phase 7: Working Memory events — passthrough
+                        elif evt_type == "working_memory":
+                            yield sse_working_memory(evt)
                     _stats["requests_deep_path"] += 1
                     yield sse_done(True, "deep_agent", swecas=swecas_info)
                     deep_handled = True
@@ -1347,6 +1416,258 @@ def get_stats():
     return jsonify(stats_data)
 
 
+# Phase 1: Pipeline Monitor REST endpoints
+
+@app.route('/api/pipeline/status', methods=['GET'])
+def pipeline_status():
+    """Get current pipeline status and last result summary"""
+    result = {"active": False, "last_result": None}
+    if agent and hasattr(agent, 'stats'):
+        result["runs"] = agent.stats.get("multi_candidate_runs", 0)
+        result["corrections"] = agent.stats.get("correction_runs", 0)
+        result["outcomes_recorded"] = agent.stats.get("outcomes_recorded", 0)
+    return jsonify(result)
+
+
+@app.route('/api/pipeline/candidates', methods=['GET'])
+def pipeline_candidates():
+    """Get full candidate comparison data from last pipeline run"""
+    if not agent or not hasattr(agent, 'multi_candidate_pipeline') or not agent.multi_candidate_pipeline:
+        return jsonify({"candidates": [], "error": "Pipeline not available"}), 404
+
+    pipeline = agent.multi_candidate_pipeline
+    if not hasattr(pipeline, '_last_result') or not pipeline._last_result:
+        return jsonify({"candidates": [], "error": "No pipeline result available"})
+
+    result = pipeline._last_result
+    try:
+        comparison = result.get_candidate_comparison()
+        return jsonify({"candidates": comparison})
+    except Exception as e:
+        return jsonify({"candidates": [], "error": str(e)})
+
+
+@app.route('/api/pipeline/candidate/<int:cand_id>', methods=['GET'])
+def pipeline_candidate_detail(cand_id):
+    """Get detailed data for a specific candidate"""
+    if not agent or not hasattr(agent, 'multi_candidate_pipeline') or not agent.multi_candidate_pipeline:
+        return jsonify({"error": "Pipeline not available"}), 404
+
+    pipeline = agent.multi_candidate_pipeline
+    if not hasattr(pipeline, '_last_result') or not pipeline._last_result:
+        return jsonify({"error": "No pipeline result available"}), 404
+
+    result = pipeline._last_result
+    if not result.pool or not result.pool.candidates:
+        return jsonify({"error": "No candidates in result"}), 404
+
+    for cand in result.pool.candidates:
+        if cand.id == cand_id:
+            return jsonify(cand.to_dict())
+
+    return jsonify({"error": f"Candidate {cand_id} not found"}), 404
+
+
+@app.route('/api/pipeline/config', methods=['GET', 'POST'])
+def pipeline_config():
+    """Get or update pipeline configuration"""
+    if not agent or not hasattr(agent, 'multi_candidate_pipeline') or not agent.multi_candidate_pipeline:
+        return jsonify({"error": "Pipeline not available"}), 404
+
+    pipeline = agent.multi_candidate_pipeline
+
+    if request.method == 'GET':
+        cfg = pipeline.config
+        return jsonify({
+            "n_candidates": cfg.n_candidates,
+            "parallel_candidate_validation": cfg.parallel_candidate_validation,
+            "max_validation_workers": cfg.max_validation_workers,
+            "validation_cache_enabled": cfg.validation_cache_enabled,
+            "max_validation_cache_size": cfg.max_validation_cache_size,
+            "fail_fast": cfg.fail_fast,
+        })
+
+    # POST: update config
+    data = request.json or {}
+    cfg = pipeline.config
+    if "n_candidates" in data:
+        cfg.n_candidates = int(data["n_candidates"])
+    if "parallel_candidate_validation" in data:
+        cfg.parallel_candidate_validation = bool(data["parallel_candidate_validation"])
+    if "max_validation_workers" in data:
+        cfg.max_validation_workers = int(data["max_validation_workers"])
+    if "validation_cache_enabled" in data:
+        cfg.validation_cache_enabled = bool(data["validation_cache_enabled"])
+    if "fail_fast" in data:
+        cfg.fail_fast = bool(data["fail_fast"])
+    return jsonify({"success": True, "updated": list(data.keys())})
+
+
+# Phase 5: Settings & Config UI REST endpoints
+
+@app.route('/api/pipeline/weights', methods=['GET', 'POST'])
+def pipeline_weights():
+    """Get or update scoring weights"""
+    if not agent or not hasattr(agent, 'multi_candidate_pipeline') or not agent.multi_candidate_pipeline:
+        return jsonify({"error": "Pipeline not available"}), 404
+
+    pipeline = agent.multi_candidate_pipeline
+    selector = pipeline.selector
+
+    if request.method == 'GET':
+        scoring = selector.scoring
+        return jsonify({
+            "weights": dict(scoring.weights),
+            "all_passed_bonus": scoring.all_passed_bonus,
+            "critical_error_penalty": scoring.critical_error_penalty,
+        })
+
+    # POST: update weights
+    data = request.json or {}
+    scoring = selector.scoring
+    if "weights" in data and isinstance(data["weights"], dict):
+        for name, val in data["weights"].items():
+            scoring.weights[name] = float(val)
+    if "bonus" in data:
+        scoring.all_passed_bonus = float(data["bonus"])
+    if "penalty" in data:
+        scoring.critical_error_penalty = float(data["penalty"])
+    return jsonify({"success": True})
+
+
+@app.route('/api/pipeline/profiles', methods=['GET'])
+def pipeline_profiles():
+    """List available validation profiles with their configs"""
+    try:
+        from core.task_abstraction import ValidationProfile, TaskAbstraction
+
+        profiles = []
+        for p in ValidationProfile:
+            cfg = TaskAbstraction.get_validation_config(p)
+            weights = TaskAbstraction.get_scoring_weights(p)
+            profiles.append({
+                "name": p.value,
+                "rule_names": cfg.get("rule_names", []),
+                "fail_fast": cfg.get("fail_fast", False),
+                "parallel": cfg.get("parallel", True),
+                "weights": weights,
+            })
+        return jsonify({"profiles": profiles})
+    except ImportError:
+        return jsonify({"profiles": [], "error": "TaskAbstraction not available"})
+    except Exception as e:
+        return jsonify({"profiles": [], "error": str(e)})
+
+
+# Phase 4: Dashboard & Analytics REST endpoints
+
+@app.route('/api/analytics/outcomes', methods=['GET'])
+def analytics_outcomes():
+    """Recent pipeline outcomes for timeline widget"""
+    limit = request.args.get('limit', 50, type=int)
+    if not agent or not hasattr(agent, 'outcome_tracker') or not agent.outcome_tracker:
+        return jsonify({"outcomes": [], "error": "OutcomeTracker not available"})
+    try:
+        outcomes = agent.outcome_tracker.get_recent_outcomes(limit=limit)
+        return jsonify({"outcomes": outcomes})
+    except Exception as e:
+        return jsonify({"outcomes": [], "error": str(e)})
+
+
+@app.route('/api/analytics/profiles', methods=['GET'])
+def analytics_profiles():
+    """Per-profile success rates and performance"""
+    if not agent or not hasattr(agent, 'outcome_tracker') or not agent.outcome_tracker:
+        return jsonify({"profiles": {}, "error": "OutcomeTracker not available"})
+    try:
+        profiles = agent.outcome_tracker.get_profile_stats()
+        return jsonify({"profiles": profiles})
+    except Exception as e:
+        return jsonify({"profiles": {}, "error": str(e)})
+
+
+@app.route('/api/analytics/rules', methods=['GET'])
+def analytics_rules():
+    """Per-rule effectiveness (catch rates)"""
+    if not agent or not hasattr(agent, 'outcome_tracker') or not agent.outcome_tracker:
+        return jsonify({"rules": {}, "error": "OutcomeTracker not available"})
+    try:
+        rules = agent.outcome_tracker.get_rule_effectiveness()
+        return jsonify({"rules": rules})
+    except Exception as e:
+        return jsonify({"rules": {}, "error": str(e)})
+
+
+@app.route('/api/analytics/cache', methods=['GET'])
+def analytics_cache():
+    """Validation cache + solution cache stats"""
+    result = {}
+
+    # Validation cache from pipeline
+    if agent and hasattr(agent, 'multi_candidate_pipeline') and agent.multi_candidate_pipeline:
+        pipeline = agent.multi_candidate_pipeline
+        if hasattr(pipeline, '_validation_cache') and pipeline._validation_cache:
+            vc = pipeline._validation_cache
+            result["validation_cache"] = {
+                "hits": vc.hits,
+                "misses": vc.misses,
+                "size": len(vc._cache) if hasattr(vc, '_cache') else 0,
+                "max_size": vc.max_size if hasattr(vc, 'max_size') else 256,
+            }
+
+    # Solution cache
+    if agent and hasattr(agent, 'solution_cache') and agent.solution_cache:
+        try:
+            sc_stats = agent.solution_cache.get_stats()
+            result["solution_cache"] = sc_stats
+        except Exception:
+            pass
+
+    # Timing stats from outcome tracker
+    if agent and hasattr(agent, 'outcome_tracker') and agent.outcome_tracker:
+        try:
+            result["timing_stats"] = agent.outcome_tracker.get_cache_stats()
+        except Exception:
+            pass
+
+    return jsonify(result)
+
+
+@app.route('/api/analytics/metrics', methods=['GET'])
+def analytics_metrics():
+    """Prometheus metrics + agent stats + summary"""
+    result = {}
+
+    # Agent stats
+    if agent:
+        result["agent_stats"] = agent.stats
+
+    # Prometheus
+    if HAS_METRICS and metrics_registry:
+        result["prometheus"] = metrics_registry.to_dict()
+
+    # Summary from outcome tracker
+    if agent and hasattr(agent, 'outcome_tracker') and agent.outcome_tracker:
+        try:
+            result["summary"] = agent.outcome_tracker.get_stats()
+        except Exception:
+            pass
+
+    return jsonify(result)
+
+
+@app.route('/api/analytics/summary', methods=['GET'])
+def analytics_summary():
+    """Comprehensive learning summary"""
+    if not agent or not hasattr(agent, 'outcome_tracker') or not agent.outcome_tracker:
+        return jsonify({"error": "OutcomeTracker not available"})
+    try:
+        summary = agent.outcome_tracker.get_learning_summary()
+        return jsonify(summary)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
 @app.route('/api/mode', methods=['GET', 'POST'])
 def mode_endpoint():
     """Get or set execution mode (auto/fast/deep/search)"""
@@ -1528,6 +1849,93 @@ def debug_route():
         "chain_results": chain_results if chain_results else [],
         "router_patterns_count": len(router.patterns)
     })
+
+
+# ============================================================================
+# PHASE 7: WORKING MEMORY & CHECKPOINTS
+# ============================================================================
+
+# In-memory checkpoint storage (per-session, resets on restart)
+_checkpoints = []  # List[{id, timestamp, description, state}]
+_checkpoint_counter = 0
+
+# Working memory history (last N snapshots from SSE events)
+_memory_history = []  # List[{timestamp, iteration, facts_count, tool_log_length, state}]
+_MAX_MEMORY_HISTORY = 50
+
+
+@app.route('/api/memory/current', methods=['GET'])
+def get_current_memory():
+    """Get the latest working memory snapshot"""
+    if _memory_history:
+        return jsonify(_memory_history[-1])
+    return jsonify({"goal": "", "plan": [], "facts": {}, "decisions": [], "tool_log": [], "iteration": 0})
+
+
+@app.route('/api/memory/history', methods=['GET'])
+def get_memory_history():
+    """Get working memory history (last N snapshots)"""
+    limit = request.args.get('limit', 20, type=int)
+    return jsonify(_memory_history[-limit:])
+
+
+@app.route('/api/memory/record', methods=['POST'])
+def record_memory_snapshot():
+    """Record a working memory snapshot (called from SSE handler)"""
+    global _memory_history
+    data = request.json or {}
+    data['timestamp'] = datetime.now().isoformat()
+    _memory_history.append(data)
+    if len(_memory_history) > _MAX_MEMORY_HISTORY:
+        _memory_history = _memory_history[-_MAX_MEMORY_HISTORY:]
+    return jsonify({"success": True, "count": len(_memory_history)})
+
+
+@app.route('/api/checkpoints', methods=['GET', 'POST'])
+def checkpoints():
+    """List or create checkpoints"""
+    global _checkpoint_counter, _checkpoints
+
+    if request.method == 'GET':
+        # Return list without full state to keep response light
+        return jsonify([{
+            "id": cp["id"],
+            "timestamp": cp["timestamp"],
+            "description": cp["description"],
+            "facts_count": len(cp.get("state", {}).get("facts", {})),
+            "tool_log_length": len(cp.get("state", {}).get("tool_log", [])),
+        } for cp in _checkpoints])
+
+    # POST: Create new checkpoint
+    data = request.json or {}
+    _checkpoint_counter += 1
+    cp = {
+        "id": f"cp-{_checkpoint_counter}",
+        "timestamp": datetime.now().isoformat(),
+        "description": data.get("description", f"Checkpoint #{_checkpoint_counter}"),
+        "state": data.get("state", _memory_history[-1] if _memory_history else {}),
+    }
+    _checkpoints.append(cp)
+    return jsonify({"success": True, "checkpoint": {
+        "id": cp["id"],
+        "timestamp": cp["timestamp"],
+        "description": cp["description"],
+    }})
+
+
+@app.route('/api/checkpoints/<checkpoint_id>', methods=['GET', 'DELETE'])
+def checkpoint_detail(checkpoint_id):
+    """Get or delete a specific checkpoint"""
+    global _checkpoints
+    cp = next((c for c in _checkpoints if c["id"] == checkpoint_id), None)
+    if not cp:
+        return jsonify({"error": "Checkpoint not found"}), 404
+
+    if request.method == 'DELETE':
+        _checkpoints = [c for c in _checkpoints if c["id"] != checkpoint_id]
+        return jsonify({"success": True, "message": f"Checkpoint {checkpoint_id} deleted"})
+
+    return jsonify(cp)
 
 
 # ============================================================================
