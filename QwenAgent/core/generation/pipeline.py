@@ -57,6 +57,34 @@ _mc_adaptive_time_saved = metrics_registry.counter("mc_adaptive_time_saved_secon
 _mc_correction_runs = metrics_registry.counter("mc_correction_runs_total", "Self-correction loop invocations")
 _mc_correction_iterations = metrics_registry.counter("mc_correction_iterations_total", "Total correction iterations")
 _mc_correction_improvements = metrics_registry.counter("mc_correction_improvements_total", "Corrections that improved score")
+_mc_validation_speedup = metrics_registry.histogram(
+    "mc_validation_speedup", "Parallel validation speedup ratio",
+    buckets=(1.0, 1.2, 1.5, 2.0, 3.0, 5.0),
+)
+
+
+@dataclass
+class ValidationStats:
+    """Statistics from candidate-level parallel validation (Week 18)."""
+
+    parallel: bool = True
+    n_candidates: int = 0
+    per_candidate_times: List[float] = field(default_factory=list)
+    sequential_estimate: float = 0.0   # sum of per-candidate times
+    parallel_actual: float = 0.0       # wall-clock time
+    speedup: float = 1.0
+    max_workers_used: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "parallel": self.parallel,
+            "n_candidates": self.n_candidates,
+            "per_candidate_times": [round(t, 4) for t in self.per_candidate_times],
+            "sequential_estimate": round(self.sequential_estimate, 4),
+            "parallel_actual": round(self.parallel_actual, 4),
+            "speedup": round(self.speedup, 2),
+            "max_workers_used": self.max_workers_used,
+        }
 
 
 @dataclass
@@ -72,6 +100,7 @@ class PipelineResult:
     selection_time: float = 0.0
     cross_review_result: Optional[Any] = None  # ReviewResult from cross_arch_review
     cross_review_time: float = 0.0
+    validation_stats: Optional[ValidationStats] = None
 
     @property
     def code(self) -> str:
@@ -131,6 +160,8 @@ class PipelineResult:
                 "time": round(self.cross_review_time, 3),
                 "model": self.cross_review_result.model,
             }
+        if self.validation_stats:
+            s["validation_stats"] = self.validation_stats.to_dict()
         return s
 
 
@@ -147,6 +178,9 @@ class PipelineConfig:
     # Week 15: Self-Correction Loop
     self_correction: bool = False          # Enable iterative error correction
     max_correction_iterations: int = 3     # Max re-generation attempts
+    # Week 18: Parallel Candidate Validation
+    parallel_candidate_validation: bool = True
+    max_validation_workers: int = 4
 
 
 class MultiCandidatePipeline:
@@ -273,9 +307,9 @@ class MultiCandidatePipeline:
                 f"All {n} candidates failed to generate (timeout or LLM error)"
             )
 
-        # --- Step 2: Validate (profile-aware since Week 12) ---
+        # --- Step 2: Validate (profile-aware since Week 12, parallel since Week 18) ---
         t_val = time.perf_counter()
-        self._validate_pool(
+        validation_stats = self._validate_pool(
             pool,
             validator=run_validator,
             fail_fast=run_fail_fast,
@@ -349,6 +383,7 @@ class MultiCandidatePipeline:
             selection_time=selection_time,
             cross_review_result=cross_review_result,
             cross_review_time=cross_review_time,
+            validation_stats=validation_stats,
         )
 
     def run_sync(self, **kwargs) -> PipelineResult:
@@ -378,6 +413,51 @@ class MultiCandidatePipeline:
     # Internal
     # ------------------------------------------------------------------
 
+    def _validate_single_candidate(
+        self,
+        candidate: 'Candidate',
+        validator: RuleRunner,
+        fail_fast: bool,
+        parallel: bool,
+    ) -> float:
+        """Validate one candidate. Returns wall-clock seconds."""
+        t0 = time.perf_counter()
+        candidate.status = CandidateStatus.VALIDATING
+
+        # Week 16: detect content type and swap validators for DevOps code
+        run_validator = validator
+        content_type = detect_content_type(candidate.code)
+        if content_type not in ("python", "unknown"):
+            devops_rules = rules_for_content_type(content_type)
+            if devops_rules:
+                run_validator = RuleRunner(devops_rules)
+                logger.info(
+                    "[Pipeline] candidate content_type=%s, using %d DevOps rules",
+                    content_type, len(devops_rules),
+                )
+
+        results: List[RuleResult] = run_validator.run(
+            candidate.code,
+            fail_fast=fail_fast,
+            parallel=parallel,
+        )
+
+        for r in results:
+            candidate.add_validation(
+                ValidationScore(
+                    validator_name=r.rule_name,
+                    passed=r.passed,
+                    score=r.score,
+                    errors=r.errors,
+                    warnings=r.warnings,
+                    duration=r.duration,
+                    weight=self._rule_weight(r.rule_name),
+                )
+            )
+
+        candidate.status = CandidateStatus.VALIDATED
+        return time.perf_counter() - t0
+
     def _validate_pool(
         self,
         pool: CandidatePool,
@@ -385,51 +465,81 @@ class MultiCandidatePipeline:
         fail_fast: Optional[bool] = None,
         parallel: bool = True,
         validation_profile: Optional[Any] = None,
-    ) -> None:
+    ) -> 'ValidationStats':
         """Run all rules on every candidate in the pool.
 
         Week 16: For non-Python content (Kubernetes, Terraform, etc.), detects
         the content type and substitutes DevOps-specific validators.
+
+        Week 18: Validates candidates in parallel using ThreadPoolExecutor
+        when parallel_candidate_validation is enabled and pool.size > 1.
+        Returns ValidationStats with timing and speedup data.
         """
         validator = validator or self.validator
         if fail_fast is None:
             fail_fast = self.config.fail_fast_validation
 
-        for candidate in pool.candidates:
-            candidate.status = CandidateStatus.VALIDATING
+        use_parallel = (
+            self.config.parallel_candidate_validation
+            and pool.size > 1
+            and not fail_fast
+        )
+        n_workers = min(pool.size, self.config.max_validation_workers)
 
-            # Week 16: detect content type and swap validators for DevOps code
-            run_validator = validator
-            content_type = detect_content_type(candidate.code)
-            if content_type not in ("python", "unknown"):
-                devops_rules = rules_for_content_type(content_type)
-                if devops_rules:
-                    run_validator = RuleRunner(devops_rules)
-                    logger.info(
-                        "[Pipeline] candidate content_type=%s, using %d DevOps rules",
-                        content_type, len(devops_rules),
-                    )
+        t0 = time.perf_counter()
+        per_candidate_times: List[float] = []
 
-            results: List[RuleResult] = run_validator.run(
-                candidate.code,
-                fail_fast=fail_fast,
-                parallel=parallel,
+        if use_parallel:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=n_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._validate_single_candidate,
+                        c, validator, fail_fast, parallel,
+                    ): i
+                    for i, c in enumerate(pool.candidates)
+                }
+                results_map: Dict[int, float] = {}
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    try:
+                        duration = future.result()
+                    except Exception as exc:
+                        logger.error("[Pipeline] candidate %d validation crashed: %s", idx, exc)
+                        pool.candidates[idx].status = CandidateStatus.VALIDATED
+                        duration = 0.0
+                    results_map[idx] = duration
+                # Preserve candidate order
+                per_candidate_times = [results_map[i] for i in range(pool.size)]
+        else:
+            for candidate in pool.candidates:
+                duration = self._validate_single_candidate(
+                    candidate, validator, fail_fast, parallel,
+                )
+                per_candidate_times.append(duration)
+
+        parallel_actual = time.perf_counter() - t0
+        sequential_estimate = sum(per_candidate_times)
+        speedup = sequential_estimate / parallel_actual if parallel_actual > 0 else 1.0
+
+        stats = ValidationStats(
+            parallel=use_parallel,
+            n_candidates=pool.size,
+            per_candidate_times=per_candidate_times,
+            sequential_estimate=sequential_estimate,
+            parallel_actual=parallel_actual,
+            speedup=speedup,
+            max_workers_used=n_workers if use_parallel else 1,
+        )
+
+        if use_parallel:
+            _mc_validation_speedup.observe(speedup)
+            logger.info(
+                "[Pipeline] parallel validation: %.2fs (est. seq: %.2fs, speedup: %.1fx)",
+                parallel_actual, sequential_estimate, speedup,
             )
 
-            for r in results:
-                candidate.add_validation(
-                    ValidationScore(
-                        validator_name=r.rule_name,
-                        passed=r.passed,
-                        score=r.score,
-                        errors=r.errors,
-                        warnings=r.warnings,
-                        duration=r.duration,
-                        weight=self._rule_weight(r.rule_name),
-                    )
-                )
-
-            candidate.status = CandidateStatus.VALIDATED
+        return stats
 
     def _rule_weight(self, rule_name: str) -> float:
         """Get weight for a rule from scoring config or rule default."""

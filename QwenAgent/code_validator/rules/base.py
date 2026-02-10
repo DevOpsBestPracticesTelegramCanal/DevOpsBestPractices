@@ -102,8 +102,10 @@ class RuleRunner:
         # results is List[RuleResult]
     """
 
-    def __init__(self, rules: Optional[List[Rule]] = None):
+    def __init__(self, rules: Optional[List[Rule]] = None,
+                 max_workers: Optional[int] = None):
         self.rules: List[Rule] = rules or []
+        self.max_workers = max_workers
 
     def add(self, rule: Rule) -> "RuleRunner":
         self.rules.append(rule)
@@ -190,7 +192,8 @@ class RuleRunner:
             result.duration = time.perf_counter() - t0
             return index, result
 
-        with ThreadPoolExecutor(max_workers=len(self.rules)) as executor:
+        effective_workers = self.max_workers or len(self.rules)
+        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             futures = [
                 executor.submit(_check_rule, i, rule)
                 for i, rule in enumerate(self.rules)
