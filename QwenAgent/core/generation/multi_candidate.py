@@ -22,6 +22,11 @@ from dataclasses import dataclass
 from typing import List, Optional, Protocol, Tuple
 
 from .candidate import Candidate, CandidatePool
+from .generator_roles import (
+    GeneratorRole,
+    get_role_for_candidate,
+    build_role_system_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -170,8 +175,15 @@ class MultiCandidateGenerator:
         temp = temps[index % len(temps)]
         seed = self.cfg.base_seed + index
 
+        # Week 21: Role-specialized system prompts
+        # Roles inject specialized system prompts but do NOT override
+        # temperature — temperature diversity is managed by config/caller.
+        role = self._get_role(task, index, total)
+
         prompt = self._prompt(task)
         system = self._system_prompt(task)
+        if role:
+            system = build_role_system_prompt(role, system)
 
         t0 = time.perf_counter()
 
@@ -199,16 +211,43 @@ class MultiCandidateGenerator:
             model=self.llm.model_name,
             generation_time=elapsed,
         )
+        # Week 21: Store role name for traceability
+        if role:
+            candidate.role = role.name
 
         logger.debug(
-            "[MultiCandidate] #%d done (temp=%.1f, %d chars, %.2fs)",
+            "[MultiCandidate] #%d done (role=%s, temp=%.1f, %d chars, %.2fs)",
             index,
+            role.name if role else "default",
             temp,
             len(code),
             elapsed,
         )
 
         return candidate
+
+    # ------------------------------------------------------------------
+    # Role selection (Week 21)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_role(task, index: int, total: int) -> Optional[GeneratorRole]:
+        """Pick a role for this candidate based on task metadata."""
+        task_type = getattr(task, "type", None)
+        type_val = task_type.value if task_type else None
+        # Use complexity from task if available
+        complexity = getattr(task, "complexity", None)
+        if complexity and hasattr(complexity, "name"):
+            complexity = complexity.name
+        try:
+            return get_role_for_candidate(
+                index=index,
+                n=total,
+                complexity=complexity,
+                task_type=type_val,
+            )
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # Prompt helpers
@@ -241,9 +280,32 @@ class MultiCandidateGenerator:
             "You are an expert code generator.\n"
             f"Task type: {task_type.value if task_type else 'general'}\n"
             f"Risk level: {risk.name if risk else 'UNKNOWN'}\n\n"
-            "Output ONLY valid source code. No markdown fences, no explanations.\n"
-            "Include error handling and comments inside the code."
+            "YOU RETURN CODE ONLY!\n"
+            "DO NOT ADD EXPLANATIONS.\n"
+            "DO NOT USE MARKDOWN to format your output.\n"
+            "Include type hints, docstrings, error handling, and comments inside the code."
         )
+
+        # Inject task-type-specific quality requirements (P0.1)
+        try:
+            from core.codegen.quality_prompts import detect_task_type, QUALITY_REQUIREMENTS
+            query = getattr(task, "query", "")
+            detected = detect_task_type(query) if query else "python"
+            # Override with explicit task_type if available
+            if task_type:
+                type_map = {
+                    "code_generation": "python",
+                    "infrastructure": "kubernetes",
+                    "bug_fix": "python",
+                    "refactoring": "python",
+                    "general": "python",
+                }
+                detected = type_map.get(task_type.value, detected)
+            requirements = QUALITY_REQUIREMENTS.get(detected, "")
+            if requirements:
+                base += f"\n\n{requirements}"
+        except (ImportError, Exception) as exc:
+            logger.debug("[MultiCandidate] quality_prompts not available: %s", exc)
 
         oss_ctx = getattr(task, "oss_context", "")
         if oss_ctx:

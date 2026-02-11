@@ -20,6 +20,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from .blackboard import CandidateBlackboard
+
 logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 3
@@ -64,8 +66,11 @@ class CorrectionResult:
     # Original PipelineResult from the best iteration
     best_pipeline_result: Optional[Any] = None
 
+    # Week 21: Blackboard accumulated knowledge
+    blackboard_summary: Optional[Dict[str, Any]] = None
+
     def summary(self) -> Dict[str, Any]:
-        return {
+        s = {
             "total_iterations": self.total_iterations,
             "initial_score": round(self.initial_score, 4),
             "final_score": round(self.final_score, 4),
@@ -84,6 +89,9 @@ class CorrectionResult:
                 for a in self.attempts
             ],
         }
+        if self.blackboard_summary:
+            s["blackboard"] = self.blackboard_summary
+        return s
 
 
 def extract_validation_errors(pipeline_result) -> List[str]:
@@ -111,6 +119,7 @@ def build_correction_prompt(
     previous_code: str,
     errors: List[str],
     iteration: int,
+    blackboard_hints: str = "",
 ) -> str:
     """Build a prompt that includes previous code + its errors.
 
@@ -118,16 +127,26 @@ def build_correction_prompt(
     1. The original task description
     2. The code it generated last time
     3. The specific validation errors found
-    4. Instructions to fix those errors
+    4. Blackboard hints from prior iterations (Week 21)
+    5. Instructions to fix those errors
     """
     error_block = "\n".join(f"  - {e}" for e in errors[:10])  # Cap at 10 errors
+
+    # Week 21: Inject blackboard knowledge if available
+    hints_section = ""
+    if blackboard_hints:
+        hints_section = (
+            f"\n--- KNOWLEDGE FROM PREVIOUS ATTEMPTS ---\n"
+            f"{blackboard_hints}\n"
+        )
 
     return (
         f"{original_query}\n\n"
         f"--- CORRECTION ATTEMPT {iteration}/{MAX_ITERATIONS} ---\n"
         f"Your previous code had validation errors. Fix them.\n\n"
         f"Previous code:\n```\n{previous_code}\n```\n\n"
-        f"Validation errors found:\n{error_block}\n\n"
+        f"Validation errors found:\n{error_block}\n"
+        f"{hints_section}\n"
         f"Generate corrected code that fixes ALL the above errors.\n"
         f"Output ONLY the corrected source code."
     )
@@ -178,6 +197,7 @@ class SelfCorrectionLoop:
         pipeline,
         max_iterations: int = MAX_ITERATIONS,
         min_score: float = MIN_SCORE_FOR_CORRECTION,
+        use_blackboard: bool = True,
     ):
         """
         Args:
@@ -185,10 +205,16 @@ class SelfCorrectionLoop:
             max_iterations: Maximum correction attempts (1 = no correction).
             min_score: Minimum initial score to attempt correction.
                        Below this, the code is too broken to salvage.
+            use_blackboard: Week 21 — accumulate good/bad patterns across
+                            iterations and inject hints into correction prompts.
         """
         self.pipeline = pipeline
         self.max_iterations = max(1, max_iterations)
         self.min_score = min_score
+        self.use_blackboard = use_blackboard
+        self.blackboard: Optional[CandidateBlackboard] = (
+            CandidateBlackboard() if use_blackboard else None
+        )
 
     def run_sync(
         self,
@@ -235,6 +261,12 @@ class SelfCorrectionLoop:
 
             # Extract errors from this iteration
             errors = extract_validation_errors(mc_result)
+
+            # Week 21: Feed blackboard with validation patterns
+            if self.blackboard and mc_result.best:
+                self.blackboard.extract_from_candidate(
+                    mc_result.best, iteration=iteration,
+                )
 
             attempt = CorrectionAttempt(
                 iteration=iteration,
@@ -286,11 +318,23 @@ class SelfCorrectionLoop:
                 break
 
             # Build correction prompt for the next iteration
+            # Week 21: Include blackboard hints in correction prompt
+            bb_hints = ""
+            if self.blackboard:
+                bb_hints = self.blackboard.build_hints_prompt()
+                if bb_hints:
+                    logger.info(
+                        "[SelfCorrection] blackboard: %d entries, %s recurring",
+                        self.blackboard.size,
+                        self.blackboard.get_recurring_errors() or "none",
+                    )
+
             current_query = build_correction_prompt(
                 original_query=query,
                 previous_code=mc_result.code,
                 errors=errors,
                 iteration=iteration + 1,
+                blackboard_hints=bb_hints,
             )
             logger.info(
                 "[SelfCorrection] building correction prompt with %d errors for iter %d",
@@ -304,7 +348,7 @@ class SelfCorrectionLoop:
         final_score = best_overall_score if best_overall_score >= 0 else 0.0
         improvement = final_score - initial_score
 
-        return CorrectionResult(
+        result = CorrectionResult(
             best_code=best_overall_result.code if best_overall_result else "",
             best_score=final_score,
             all_passed=best_overall_result.all_passed if best_overall_result else False,
@@ -317,3 +361,9 @@ class SelfCorrectionLoop:
             corrected=improvement > 0.01 and len(attempts) > 1,
             best_pipeline_result=best_overall_result,
         )
+
+        # Week 21: Attach blackboard summary
+        if self.blackboard:
+            result.blackboard_summary = self.blackboard.to_dict()
+
+        return result

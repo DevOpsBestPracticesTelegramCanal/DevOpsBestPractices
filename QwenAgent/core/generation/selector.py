@@ -32,7 +32,8 @@ class ScoringWeights:
         "static_bandit": 4.0,     # Security is important
         "complexity": 1.5,
         "style": 1.0,
-        "docstring": 0.5,
+        "docstring": 3.0,         # Quality marker — type hints + docstrings
+        "type_hints": 3.0,        # Quality marker — type annotations
         "oss_patterns": 1.5,      # OSS pattern alignment — advisory
     })
 

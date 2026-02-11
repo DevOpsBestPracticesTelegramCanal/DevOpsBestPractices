@@ -37,6 +37,46 @@ from core.observability.metrics import metrics as metrics_registry
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Week 21: Quality Escalation — FAST → STANDARD → DEEP
+# ---------------------------------------------------------------------------
+
+class QualityLevel:
+    """Quality tiers for automatic escalation.
+
+    Each tier defines how many candidates to generate and which validation
+    profile to use.  If a tier doesn't produce an all-passed candidate,
+    the pipeline automatically escalates to the next tier.
+    """
+
+    FAST = "FAST"
+    STANDARD = "STANDARD"
+    DEEP = "DEEP"
+
+    _CONFIG = {
+        "FAST": {"n_candidates": 1, "profile": "fast_dev"},
+        "STANDARD": {"n_candidates": 3, "profile": "balanced"},
+        "DEEP": {"n_candidates": 5, "profile": "safe_fix"},
+    }
+
+    _ORDER = ["FAST", "STANDARD", "DEEP"]
+
+    @classmethod
+    def config_for(cls, level: str) -> dict:
+        return dict(cls._CONFIG.get(level, cls._CONFIG["STANDARD"]))
+
+    @classmethod
+    def next_level(cls, current: str) -> Optional[str]:
+        try:
+            idx = cls._ORDER.index(current)
+            if idx + 1 < len(cls._ORDER):
+                return cls._ORDER[idx + 1]
+        except ValueError:
+            pass
+        return None
+
+
 # --- Prometheus-style metrics for Multi-Candidate Pipeline ---
 _mc_runs = metrics_registry.counter("mc_pipeline_runs_total", "Total pipeline runs")
 _mc_candidates = metrics_registry.counter("mc_candidates_generated_total", "Total candidates generated")
@@ -283,6 +323,9 @@ class PipelineConfig:
     # Week 19: Validation Result Cache
     validation_cache_enabled: bool = True
     max_validation_cache_size: int = 256
+    # Week 21: Quality Escalation
+    quality_escalation: bool = False       # Enable FAST → STANDARD → DEEP auto-escalation
+    initial_quality_level: str = "FAST"    # Starting tier when escalation is enabled
 
 
 class MultiCandidatePipeline:
@@ -495,15 +538,99 @@ class MultiCandidatePipeline:
             validation_stats=validation_stats,
         )
 
+    async def run_with_escalation(
+        self,
+        task_id: str = "task",
+        query: str = "",
+        initial_level: Optional[str] = None,
+        **kwargs,
+    ) -> PipelineResult:
+        """Run the pipeline with automatic quality escalation (Week 21).
+
+        Starts at *initial_level* (default: config.initial_quality_level) and
+        escalates through FAST → STANDARD → DEEP until either:
+          - A candidate passes all validators, or
+          - The highest tier (DEEP) has been tried.
+
+        Returns the best PipelineResult across all tiers.
+
+        All extra ``**kwargs`` are forwarded to :meth:`run`.
+        """
+        level = initial_level or self.config.initial_quality_level
+        best_result: Optional[PipelineResult] = None
+
+        while level is not None:
+            tier_cfg = QualityLevel.config_for(level)
+            n = tier_cfg["n_candidates"]
+
+            # Resolve profile enum from string
+            profile = kwargs.get("validation_profile")
+            if profile is None:
+                try:
+                    from core.task_abstraction import ValidationProfile
+                    profile = ValidationProfile(tier_cfg["profile"])
+                except (ImportError, ValueError):
+                    profile = None
+
+            logger.info(
+                "[Pipeline] escalation tier=%s n=%d profile=%s",
+                level, n, tier_cfg["profile"],
+            )
+
+            result = await self.run(
+                task_id=f"{task_id}_esc_{level.lower()}",
+                query=query,
+                n=n,
+                validation_profile=profile,
+                **{k: v for k, v in kwargs.items() if k not in ("n", "validation_profile")},
+            )
+
+            # Track the best result across tiers
+            if best_result is None or result.score > best_result.score:
+                best_result = result
+
+            if result.all_passed:
+                logger.info(
+                    "[Pipeline] escalation stopped at %s — all passed (score=%.4f)",
+                    level, result.score,
+                )
+                best_result._escalation_level = level  # type: ignore[attr-defined]
+                return best_result
+
+            # Escalate to next tier
+            next_level = QualityLevel.next_level(level)
+            if next_level is None:
+                logger.info(
+                    "[Pipeline] escalation exhausted at %s (score=%.4f)",
+                    level, best_result.score,
+                )
+                break
+
+            logger.info(
+                "[Pipeline] escalating %s → %s (best so far: %.4f)",
+                level, next_level, best_result.score,
+            )
+            level = next_level
+
+        best_result._escalation_level = level  # type: ignore[attr-defined]
+        return best_result
+
     def run_sync(self, **kwargs) -> PipelineResult:
         """
         Synchronous wrapper for Flask/Orchestrator integration.
 
-        Accepts the same kwargs as run().
+        Accepts the same kwargs as run() or run_with_escalation().
+        When config.quality_escalation is True, delegates to
+        run_with_escalation() automatically.
         Uses a non-daemon thread to avoid 'Cannot run async subprocess
         in daemon thread' errors from Flask/Werkzeug.
         """
         import threading
+
+        # Week 21: Choose async entry-point
+        use_escalation = self.config.quality_escalation and kwargs.get("_force_no_escalation") is not True
+        kwargs.pop("_force_no_escalation", None)
+        coro_fn = self.run_with_escalation if use_escalation else self.run
 
         # If we're in a daemon thread (Flask/Werkzeug), spawn a non-daemon
         # worker thread that can safely create an asyncio event loop.
@@ -517,7 +644,7 @@ class MultiCandidatePipeline:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        result_box.append(loop.run_until_complete(self.run(**kwargs)))
+                        result_box.append(loop.run_until_complete(coro_fn(**kwargs)))
                     finally:
                         loop.close()
                 except Exception as exc:
@@ -544,11 +671,11 @@ class MultiCandidatePipeline:
             if loop and loop.is_running():
                 import nest_asyncio
                 nest_asyncio.apply()
-                result = loop.run_until_complete(self.run(**kwargs))
+                result = loop.run_until_complete(coro_fn(**kwargs))
             else:
                 loop = asyncio.new_event_loop()
                 try:
-                    result = loop.run_until_complete(self.run(**kwargs))
+                    result = loop.run_until_complete(coro_fn(**kwargs))
                 finally:
                     loop.close()
 

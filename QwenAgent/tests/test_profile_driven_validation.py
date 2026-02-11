@@ -99,15 +99,17 @@ class TestProfileRuleSelection:
         assert len(rules) == 1
         assert rules[0].name == "ast_syntax"
 
-    def test_balanced_five_rules(self):
+    def test_balanced_seven_rules(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.BALANCED)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 5
+        assert len(rules) == 7
         rule_names = [r.name for r in rules]
         assert "ast_syntax" in rule_names
         assert "no_forbidden_imports" in rule_names
         assert "no_eval_exec" in rule_names
         assert "complexity" in rule_names
+        assert "docstring" in rule_names
+        assert "type_hints" in rule_names
         assert "oss_patterns" in rule_names
 
     def test_safe_fix_all_rules(self):
@@ -265,14 +267,14 @@ class TestEndToEndProfileFlow:
         assert cfg["parallel"] is False
 
     def test_moderate_codegen_balanced(self):
-        """Moderate codegen → BALANCED profile → 5 rules."""
+        """Moderate codegen → BALANCED profile → 7 rules."""
         ta = TaskAbstraction()
         ctx = ta.classify("write a sort function", is_codegen=True, complexity="MODERATE")
         assert ctx.validation_profile == ValidationProfile.BALANCED
 
         cfg = TaskAbstraction.get_validation_config(ctx.validation_profile)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 5
+        assert len(rules) == 7
 
     def test_complex_codegen_safe_fix(self):
         """Complex codegen → HIGH risk → SAFE_FIX profile → all rules."""

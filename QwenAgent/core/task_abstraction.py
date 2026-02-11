@@ -178,6 +178,8 @@ _PROFILE_CONFIGS: Dict[ValidationProfile, Dict[str, Any]] = {
             "no_forbidden_imports",
             "no_eval_exec",
             "complexity",
+            "docstring",
+            "type_hints",
             "oss_patterns",
         ],
         "fail_fast": False,
@@ -496,7 +498,8 @@ class TaskAbstraction:
                 "static_bandit": 4.0,
                 "complexity": 1.5,
                 "style": 1.0,
-                "docstring": 0.5,
+                "docstring": 3.0,
+                "type_hints": 3.0,
                 "oss_patterns": 1.5,
             }
 

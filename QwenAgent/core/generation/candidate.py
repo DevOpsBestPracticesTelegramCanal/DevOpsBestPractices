@@ -61,6 +61,9 @@ class Candidate:
     total_score: float = 0.0
     status: CandidateStatus = CandidateStatus.GENERATED
 
+    # Week 21: Role-specialized generation
+    role: str = ""  # generator role name (correctness/security/readability/performance)
+
     # Timing
     generated_at: datetime = field(default_factory=datetime.now)
     validated_at: Optional[datetime] = None
