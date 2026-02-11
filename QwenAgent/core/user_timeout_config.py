@@ -117,6 +117,54 @@ class UserTimeoutPreferences:
         else:
             return min(self.deep_mode_budget, self.max_wait)
 
+    def update(self, data: Dict[str, Any]) -> None:
+        """
+        Update fields in-place from a dict.
+
+        Only known fields are updated; unknown keys are ignored.
+        Values are type-cast to match the field type.
+        """
+        _FIELD_TYPES = {
+            "max_wait": float,
+            "on_timeout": str,
+            "risk_tolerance": str,
+            "priority": str,
+            "preferred_model": str,
+            "fallback_model": str,
+            "deep_mode_budget": float,
+            "fast_mode_budget": float,
+        }
+        for key, val in data.items():
+            if key in _FIELD_TYPES:
+                try:
+                    setattr(self, key, _FIELD_TYPES[key](val))
+                except (ValueError, TypeError):
+                    pass  # skip invalid values
+
+    @classmethod
+    def from_partial_dict(cls, data: Dict[str, Any], base: 'UserTimeoutPreferences' = None) -> 'UserTimeoutPreferences':
+        """
+        Create a new instance from a partial dict, falling back to base or defaults.
+
+        Args:
+            data: Partial dict with overrides
+            base: Optional base config to inherit from (defaults used if None)
+        """
+        if base is None:
+            base = cls()
+        inst = cls(
+            max_wait=base.max_wait,
+            on_timeout=base.on_timeout,
+            risk_tolerance=base.risk_tolerance,
+            priority=base.priority,
+            preferred_model=base.preferred_model,
+            fallback_model=base.fallback_model,
+            deep_mode_budget=base.deep_mode_budget,
+            fast_mode_budget=base.fast_mode_budget,
+        )
+        inst.update(data)
+        return inst
+
     def to_dict(self) -> Dict[str, Any]:
         """Сериализация для API/логов."""
         return {

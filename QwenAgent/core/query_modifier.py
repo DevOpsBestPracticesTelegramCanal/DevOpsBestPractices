@@ -280,8 +280,10 @@ class QueryModifierEngine:
             r"^/",                    # Команды /help, /mode, etc.
             r"^\d+\s*[\+\-\*\/]",    # Математика
             r"^(hi|hello|привет|ping|pong)\s*$",  # Приветствия
-            # Tool commands - PatternRouter handles these, don't modify
+            # Tool commands (EN) - PatternRouter handles these, don't modify
             r"^(git|grep|read|find|ls|glob|edit|write|bash|cat|cd|mkdir|rm|cp|mv|touch|pip|python|npm|node|docker|kubectl)\s",
+            # Tool commands (RU) - PatternRouter handles these, don't modify
+            r"^(прочитай|прочти|открой|выведи|покажи файл|найди|поиск|замени|создай файл|удали)\s",
         ]
         for pattern in special_patterns:
             if re.match(pattern, query.strip(), re.IGNORECASE):

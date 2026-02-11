@@ -17,6 +17,8 @@ import { workingMemoryPanel } from './modules/working-memory-panel.js';
 import { checkpointManager } from './modules/checkpoint-manager.js';
 import { parallelView } from './modules/parallel-view.js';
 import { dualMode } from './modules/dual-mode.js';
+import { streamingRenderer } from './modules/streaming-renderer.js';
+import { timeoutMenu } from './modules/timeout-menu.js';
 import eventBus from './modules/event-bus.js';
 
 // Wire SSE events to choice/approval handlers
@@ -100,7 +102,13 @@ document.addEventListener('DOMContentLoaded', () => {
     dualMode.init();
     initPhase7Buttons();
 
-    // 11. Health check
+    // 11. Streaming Renderer (Week 20)
+    streamingRenderer.init();
+
+    // 12. Timeout Menu (Week 21)
+    timeoutMenu.init();
+
+    // 13. Health check
     checkHealth();
     setInterval(checkHealth, 30000);
 

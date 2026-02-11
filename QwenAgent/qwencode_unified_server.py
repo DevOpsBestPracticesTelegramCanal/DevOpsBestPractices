@@ -233,6 +233,23 @@ def sse_checkpoint_saved(data: Dict) -> str:
     return sse_event("checkpoint_saved", data)
 
 
+# Week 20: Token streaming SSE helpers
+
+def sse_response_start(message_id: str) -> str:
+    """Response start event — before first token"""
+    return sse_event("response_start", {"message_id": message_id})
+
+
+def sse_response_token(token: str, message_id: str) -> str:
+    """Single token event — streamed incrementally"""
+    return sse_event("response_token", {"token": token, "message_id": message_id})
+
+
+def sse_response_done(content: str, message_id: str) -> str:
+    """Response done event — full text ready for formatting"""
+    return sse_event("response_done", {"content": content, "message_id": message_id})
+
+
 # ============================================================================
 # RESULT FORMATTERS
 # ============================================================================
@@ -505,8 +522,20 @@ def index():
 @app.route('/api/health')
 def health():
     """Health check endpoint"""
+    # Check Ollama connectivity
+    ollama_ok = False
+    try:
+        import urllib.request
+        req = urllib.request.Request(config.ollama_url + "/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            ollama_ok = resp.status == 200
+    except Exception:
+        pass
+
     health_data = {
         "status": "ok",
+        "ollama": ollama_ok,
+        "model": config.fast_model,
         "fast_model": config.fast_model,
         "heavy_model": config.heavy_model,
         "ollama_url": config.ollama_url,
@@ -836,6 +865,13 @@ def chat_stream():
                             yield sse_correction_result(evt)
                         elif evt_type == "deep_step":
                             yield sse_event("deep_step", evt)
+                        # Week 20: Token streaming events — passthrough
+                        elif evt_type == "response_start":
+                            yield sse_response_start(evt.get("message_id", ""))
+                        elif evt_type == "response_token":
+                            yield sse_response_token(evt.get("token", ""), evt.get("message_id", ""))
+                        elif evt_type == "response_done":
+                            yield sse_response_done(evt.get("content", ""), evt.get("message_id", ""))
                         # Phase 7: Working Memory events — passthrough
                         elif evt_type == "working_memory":
                             yield sse_working_memory(evt)
@@ -1739,6 +1775,41 @@ def config_endpoint():
             "ollama_url": config.ollama_url
         }
     })
+
+
+@app.route('/api/timeout', methods=['GET', 'POST'])
+def timeout_endpoint():
+    """Get or update timeout preferences (used by Timeout Menu dropdown)"""
+    if agent is None:
+        return jsonify({"success": False, "error": "Agent not initialized"}), 503
+
+    if request.method == 'GET':
+        return jsonify({"success": True, **agent.user_prefs.to_dict()})
+
+    # POST — validate and update
+    data = request.json or {}
+    errors = []
+
+    if 'priority' in data and data['priority'] not in ('speed', 'balanced', 'quality'):
+        errors.append("priority must be one of: speed, balanced, quality")
+    if 'max_wait' in data:
+        try:
+            mw = float(data['max_wait'])
+            if mw < 10 or mw > 3600:
+                errors.append("max_wait must be between 10 and 3600")
+        except (ValueError, TypeError):
+            errors.append("max_wait must be a number")
+
+    if errors:
+        return jsonify({"success": False, "errors": errors}), 400
+
+    agent.user_prefs.update(data)
+    agent.timeout_config = agent.user_prefs.to_timeout_config()
+    # Update LLM client timeout config if available
+    if hasattr(agent, 'llm_client') and hasattr(agent.llm_client, 'timeout_config'):
+        agent.llm_client.timeout_config = agent.timeout_config
+
+    return jsonify({"success": True, **agent.user_prefs.to_dict()})
 
 
 @app.route('/api/models', methods=['GET'])

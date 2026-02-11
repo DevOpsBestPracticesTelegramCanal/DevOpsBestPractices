@@ -500,23 +500,57 @@ class MultiCandidatePipeline:
         Synchronous wrapper for Flask/Orchestrator integration.
 
         Accepts the same kwargs as run().
+        Uses a non-daemon thread to avoid 'Cannot run async subprocess
+        in daemon thread' errors from Flask/Werkzeug.
         """
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+        import threading
 
-        if loop and loop.is_running():
-            # Already in an async context (nest_asyncio)
-            import nest_asyncio
-            nest_asyncio.apply()
-            result = loop.run_until_complete(self.run(**kwargs))
+        # If we're in a daemon thread (Flask/Werkzeug), spawn a non-daemon
+        # worker thread that can safely create an asyncio event loop.
+        current = threading.current_thread()
+        if current.daemon:
+            result_box: list = []
+            error_box: list = []
+
+            def _worker():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        result_box.append(loop.run_until_complete(self.run(**kwargs)))
+                    finally:
+                        loop.close()
+                except Exception as exc:
+                    error_box.append(exc)
+
+            t = threading.Thread(target=_worker, daemon=False)
+            t.start()
+            t.join(timeout=660)  # match total_timeout ceiling
+
+            if t.is_alive():
+                raise TimeoutError("Pipeline timed out (660s) in non-daemon thread")
+            if error_box:
+                raise error_box[0]
+            if not result_box:
+                raise RuntimeError("Pipeline returned no result")
+            result = result_box[0]
         else:
-            loop = asyncio.new_event_loop()
+            # Normal path — not in a daemon thread
             try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                import nest_asyncio
+                nest_asyncio.apply()
                 result = loop.run_until_complete(self.run(**kwargs))
-            finally:
-                loop.close()
+            else:
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(self.run(**kwargs))
+                finally:
+                    loop.close()
 
         # Phase 2: Store last result for REST API access
         self._last_result = result

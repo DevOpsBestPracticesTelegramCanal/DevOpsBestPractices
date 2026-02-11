@@ -1198,6 +1198,31 @@ code {
     box-shadow: 0 0 8px rgba(247, 129, 102, 0.5);
 }
 
+/* ========== Week 20: Streaming Response ========== */
+
+@keyframes blink-cursor {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+.streaming-cursor {
+    display: inline;
+    color: var(--accent-blue);
+    font-weight: bold;
+    animation: blink-cursor 0.7s step-end infinite;
+}
+
+.streaming-message .message-body {
+    min-height: 24px;
+}
+
+.streaming-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ========== END Streaming Response ========== */
+
 .loading-dot {
     width: 10px;
     height: 10px;
@@ -5070,6 +5095,157 @@ body.compact-mode .message {
     background: rgba(88, 166, 255, 0.15) !important;
     border-color: rgba(88, 166, 255, 0.4) !important;
     color: #58a6ff !important;
+}
+
+/* ========== TIMEOUT MENU DROPDOWN ========== */
+.timeout-selector {
+    position: relative;
+    display: inline-block;
+}
+
+.timeout-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 300px;
+    background: var(--glass-bg, rgba(22, 27, 34, 0.92));
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+    border-radius: 14px;
+    padding: 16px;
+    z-index: 1000;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.timeout-selector.open .timeout-dropdown {
+    display: block;
+}
+
+.tm-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e6edf3);
+    margin-bottom: 12px;
+}
+
+.tm-presets {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.tm-preset-btn {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+    border-radius: 8px;
+    color: var(--text-muted, #8b949e);
+    padding: 8px 4px;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+}
+
+.tm-preset-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary, #e6edf3);
+}
+
+.tm-preset-btn.active {
+    background: rgba(88, 166, 255, 0.15);
+    border-color: rgba(88, 166, 255, 0.4);
+    color: #58a6ff;
+}
+
+.tm-field {
+    margin-bottom: 12px;
+}
+
+.tm-label {
+    font-size: 11px;
+    color: var(--text-muted, #8b949e);
+    margin-bottom: 4px;
+    display: block;
+}
+
+.tm-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+    border-radius: 6px;
+    color: var(--text-primary, #e6edf3);
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+.tm-input:focus {
+    outline: none;
+    border-color: rgba(88, 166, 255, 0.4);
+}
+
+.tm-computed {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tm-computed-item {
+    text-align: center;
+}
+
+.tm-computed-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary, #e6edf3);
+}
+
+.tm-computed-label {
+    font-size: 10px;
+    color: var(--text-muted, #8b949e);
+    margin-top: 2px;
+}
+
+.tm-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tm-save-btn {
+    background: rgba(88, 166, 255, 0.15);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-radius: 6px;
+    color: #58a6ff;
+    padding: 6px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+    flex: 1;
+}
+
+.tm-save-btn:hover {
+    background: rgba(88, 166, 255, 0.25);
+}
+
+.tm-status {
+    font-size: 12px;
+    color: #3fb950;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.tm-status-visible {
+    opacity: 1;
 }
 
 /* ========== REDUCED MOTION ========== */

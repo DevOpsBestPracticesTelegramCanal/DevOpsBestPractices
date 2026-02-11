@@ -181,6 +181,17 @@ export async function sendMessage() {
         }
     }));
 
+    // Week 20: Streaming token events
+    unsubs.push(eventBus.on('sse:response_start', (event) => {
+        hideLoading(loadingId);
+    }));
+
+    unsubs.push(eventBus.on('sse:response_done', (event) => {
+        lastRouteMethod = 'llm';
+        state.currentMode = 'deep6';
+        updateAutoModeIndicator('deep6');
+    }));
+
     unsubs.push(eventBus.on('sse:error', (event) => {
         hideLoading(loadingId);
         addMessage('system', `Error: ${event.text || 'Unknown error'}`);

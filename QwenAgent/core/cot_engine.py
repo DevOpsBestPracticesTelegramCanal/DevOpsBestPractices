@@ -132,7 +132,7 @@ class CoTEngine:
         elif self.deep_mode:
             self.budget = BudgetPresets.deep6_mode(max_time)
         else:
-            self.budget = BudgetPresets.fast_mode(min(max_time, 30))
+            self.budget = BudgetPresets.fast_mode(max_time)
 
         return self.budget
 

@@ -6,6 +6,9 @@ import { dom, scrollToBottom, escapeHtml } from './dom.js';
 import { TOOL_ICONS, ROUTE_ICONS, ROUTE_LABELS } from './constants.js';
 import { formatContent, formatToolResult } from './formatting.js';
 
+// Week 20: Streaming message counter
+let _streamMsgCounter = 0;
+
 function countLines(str) {
     return (str.match(/\n/g) || []).length + 1;
 }
@@ -214,4 +217,83 @@ export function toggleAllCollapsed() {
         const expandables = document.querySelectorAll('.collapsible:not(.collapsed)');
         expandables.forEach(el => el.classList.add('collapsed'));
     }
+}
+
+// Week 20: Streaming message support
+
+/**
+ * Create a streaming message element with blinking cursor.
+ * @param {string} msgId - Unique message ID
+ * @returns {HTMLElement} The created message element
+ */
+export function createStreamingMessage(msgId) {
+    _streamMsgCounter++;
+    const div = document.createElement('div');
+    div.className = 'message streaming-message';
+    div.id = `streaming-msg-${msgId || _streamMsgCounter}`;
+
+    div.innerHTML = `
+        <div class="message-assistant">
+            <div class="message-body">
+                <span class="streaming-text"></span><span class="streaming-cursor">|</span>
+            </div>
+        </div>
+    `;
+
+    dom.output.appendChild(div);
+    scrollToBottom();
+    return div;
+}
+
+/**
+ * Append raw text to a streaming message element.
+ * @param {HTMLElement} el - The streaming message element
+ * @param {string} text - Text chunk to append
+ */
+export function appendToStreamingMessage(el, text) {
+    if (!el) return;
+    const span = el.querySelector('.streaming-text');
+    if (span) {
+        span.textContent += text;
+    }
+}
+
+/**
+ * Finalize a streaming message: remove cursor, apply formatting + highlighting.
+ * @param {HTMLElement} el - The streaming message element
+ * @param {string} fullContent - The complete response text
+ */
+export function finalizeStreamingMessage(el, fullContent) {
+    if (!el) return;
+
+    el.classList.remove('streaming-message');
+
+    // Remove cursor
+    const cursor = el.querySelector('.streaming-cursor');
+    if (cursor) cursor.remove();
+
+    // Replace raw text with formatted content
+    const body = el.querySelector('.message-body');
+    if (body) {
+        body.innerHTML = formatContent(fullContent);
+
+        // Syntax highlighting
+        body.querySelectorAll('pre code').forEach(block => {
+            hljs.highlightElement(block);
+        });
+        body.querySelectorAll('.code-block-content').forEach(block => {
+            const lang = block.dataset.lang;
+            if (lang && lang !== 'plaintext') {
+                block.querySelectorAll('.code-line-content').forEach(lineEl => {
+                    const text = lineEl.textContent;
+                    try {
+                        const result = hljs.highlight(text, { language: lang, ignoreIllegals: true });
+                        lineEl.innerHTML = result.value;
+                    } catch (e) { /* Language not supported */ }
+                });
+            }
+        });
+    }
+
+    scrollToBottom();
 }
