@@ -432,6 +432,28 @@ try:
 except ImportError:
     pass
 
+# Week 22: Register quality validators (graceful if modules not yet available)
+try:
+    from .search_guard import SearchGuardRule
+    from .promise_checker import PromiseCheckerRule
+    from .antipattern_rules import AntiPatternRule
+    from .extended_domain_rules import ExtendedDomainRule
+    from .production_readiness import ProductionReadyRule
+    from .async_safety import AsyncSafetyRule
+    from .exception_rules import ExceptionHierarchyRule
+
+    _RULE_REGISTRY.update({
+        "search_guard": SearchGuardRule,
+        "promise_checker": PromiseCheckerRule,
+        "antipattern": AntiPatternRule,
+        "extended_domain": ExtendedDomainRule,
+        "production_ready": ProductionReadyRule,
+        "async_safety": AsyncSafetyRule,
+        "exception_hierarchy": ExceptionHierarchyRule,
+    })
+except ImportError:
+    pass
+
 
 def build_rules_for_names(names: List[str]) -> List[Rule]:
     """Build a list of Rule instances from rule names.

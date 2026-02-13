@@ -212,7 +212,8 @@ class TestValidationConfig:
 
     def test_fast_dev_config(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.FAST_DEV)
-        assert cfg["rule_names"] == ["ast_syntax"]
+        assert "ast_syntax" in cfg["rule_names"]
+        assert "search_guard" in cfg["rule_names"]  # Week 22
         assert cfg["fail_fast"] is False
         assert cfg["parallel"] is True
 
@@ -221,18 +222,22 @@ class TestValidationConfig:
         assert "ast_syntax" in cfg["rule_names"]
         assert "no_forbidden_imports" in cfg["rule_names"]
         assert "no_eval_exec" in cfg["rule_names"]
+        # Week 22 quality rules
+        assert "search_guard" in cfg["rule_names"]
+        assert "promise_checker" in cfg["rule_names"]
+        assert "antipattern" in cfg["rule_names"]
         assert cfg["fail_fast"] is False
         assert cfg["parallel"] is True
 
     def test_safe_fix_config(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.SAFE_FIX)
-        assert len(cfg["rule_names"]) == 8
+        assert len(cfg["rule_names"]) == 15  # 8 + 7 quality (Week 22)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is True
 
     def test_critical_config(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.CRITICAL)
-        assert len(cfg["rule_names"]) == 8
+        assert len(cfg["rule_names"]) == 15  # 8 + 7 quality (Week 22)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is False  # Sequential for max safety
 

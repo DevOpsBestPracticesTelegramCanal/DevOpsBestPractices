@@ -165,10 +165,21 @@ _ALL_RULE_NAMES = [
     "oss_patterns",
 ]
 
+# Week 22: Quality validator rule names
+_QUALITY_RULE_NAMES = [
+    "search_guard",
+    "promise_checker",
+    "antipattern",
+    "extended_domain",
+    "production_ready",
+    "async_safety",
+    "exception_hierarchy",
+]
+
 # Profile → validation config
 _PROFILE_CONFIGS: Dict[ValidationProfile, Dict[str, Any]] = {
     ValidationProfile.FAST_DEV: {
-        "rule_names": ["ast_syntax"],
+        "rule_names": ["ast_syntax", "search_guard"],
         "fail_fast": False,
         "parallel": True,
     },
@@ -181,17 +192,30 @@ _PROFILE_CONFIGS: Dict[ValidationProfile, Dict[str, Any]] = {
             "docstring",
             "type_hints",
             "oss_patterns",
+            # Week 22: quality validators
+            "search_guard",
+            "promise_checker",
+            "antipattern",
         ],
         "fail_fast": False,
         "parallel": True,
     },
     ValidationProfile.SAFE_FIX: {
-        "rule_names": list(_ALL_RULE_NAMES),
+        "rule_names": list(_ALL_RULE_NAMES) + [
+            # Week 22: all quality validators
+            "search_guard",
+            "promise_checker",
+            "antipattern",
+            "extended_domain",
+            "production_ready",
+            "async_safety",
+            "exception_hierarchy",
+        ],
         "fail_fast": True,
         "parallel": True,
     },
     ValidationProfile.CRITICAL: {
-        "rule_names": list(_ALL_RULE_NAMES),
+        "rule_names": list(_ALL_RULE_NAMES) + list(_QUALITY_RULE_NAMES),
         "fail_fast": True,
         "parallel": False,  # Sequential for maximum safety
     },

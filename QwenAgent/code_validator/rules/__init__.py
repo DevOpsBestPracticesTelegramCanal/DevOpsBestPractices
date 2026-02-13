@@ -5,6 +5,7 @@ In-process rules are lightweight and fast (no subprocess).
 External rules shell out to CLI tools (ruff, mypy, hadolint) for deeper checks.
 DevOps rules (Week 16-17) cover Kubernetes, Terraform, GitHub Actions, Ansible,
 Helm, Bash, Docker Compose, and YAML.
+Quality rules (Week 22) add anti-pattern, promise, async safety, and domain checks.
 """
 
 from .base import Rule, RuleResult, RuleSeverity, RuleRunner
@@ -50,6 +51,18 @@ from .devops_validators import (
     rules_for_content_type,
 )
 
+# Week 22: Quality validators
+try:
+    from .search_guard import SearchGuardRule
+    from .promise_checker import PromiseCheckerRule
+    from .antipattern_rules import AntiPatternRule
+    from .extended_domain_rules import ExtendedDomainRule
+    from .production_readiness import ProductionReadyRule
+    from .async_safety import AsyncSafetyRule
+    from .exception_rules import ExceptionHierarchyRule
+except ImportError:
+    pass
+
 __all__ = [
     # base
     "Rule",
@@ -94,4 +107,12 @@ __all__ = [
     "github_actions_rules",
     "yaml_rules",
     "rules_for_content_type",
+    # quality (Week 22)
+    "SearchGuardRule",
+    "PromiseCheckerRule",
+    "AntiPatternRule",
+    "ExtendedDomainRule",
+    "ProductionReadyRule",
+    "AsyncSafetyRule",
+    "ExceptionHierarchyRule",
 ]
