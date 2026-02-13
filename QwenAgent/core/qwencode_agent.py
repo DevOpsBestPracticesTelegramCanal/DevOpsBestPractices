@@ -138,12 +138,21 @@ except ImportError:
     HAS_OUTCOME_TRACKER = False
     OutcomeTracker = None  # type: ignore
 
+# Week 23: Research Agent — Web Search + Local DB → DEEP3/DEEP6
+try:
+    from .research_agent import ResearchAgent, ResearchResult, ResearchConfig
+    HAS_RESEARCH_AGENT = True
+except ImportError:
+    HAS_RESEARCH_AGENT = False
+    ResearchAgent = None  # type: ignore
+
 
 @dataclass
 class QwenCodeConfig:
     """Configuration for QwenCode agent"""
     ollama_url: str = "http://localhost:11434"
     model: str = "qwen2.5-coder:32b"
+    pipeline_model: str = ""  # Heavy model for multi-candidate pipeline (defaults to model)
     max_iterations: int = 10
     timeout: int = 120
     working_dir: str = field(default_factory=os.getcwd)
@@ -284,17 +293,19 @@ Current working directory: {working_dir}
             try:
                 from .streaming_llm_client import StreamingLLMClient as _StreamingClient
                 mc_timeout = TimeoutConfig(
-                    ttft_timeout=120,   # 2 min — slow 7B model on CPU/small GPU
-                    idle_timeout=60,    # 1 min between tokens
-                    absolute_max=300,   # 5 min absolute ceiling
+                    ttft_timeout=300,   # 5 min — 7B on CPU needs long prefill
+                    idle_timeout=120,   # 2 min between tokens (CPU is slow)
+                    absolute_max=600,   # 10 min per candidate absolute ceiling
                 )
                 mc_async_client = _StreamingClient(
                     base_url=self.config.ollama_url,
                     timeout_config=mc_timeout,
                 )
+                _pipeline_model = self.config.pipeline_model or self.config.model
                 adapter = AsyncLLMAdapter(
                     mc_async_client,
-                    model=self.config.model,
+                    model=_pipeline_model,
+                    max_tokens=1024,  # Reasonable output length
                 )
                 from .generation.multi_candidate import MultiCandidateConfig
                 # Initialize CrossArchReviewer if ANTHROPIC_API_KEY is set
@@ -314,14 +325,17 @@ Current working directory: {working_dir}
                         n_candidates=2,             # 2 candidates for single-GPU
                         parallel_generation=False,   # Sequential — avoids GPU contention
                         fail_fast_validation=True,
+                        quality_escalation=True,     # Week 21: FAST→STANDARD→DEEP
+                        initial_quality_level="FAST",
                         generation_config=MultiCandidateConfig(
-                            per_candidate_timeout=300.0,  # 5 min per candidate
-                            total_timeout=660.0,          # 11 min total
+                            per_candidate_timeout=600.0,  # 10 min per candidate (CPU)
+                            total_timeout=1200.0,         # 20 min total across all tiers
+                            max_tokens=1024,              # Allow longer output
                         ),
                         cross_reviewer=cross_reviewer,
                     ),
                 )
-                print(f"[MULTI-CANDIDATE] Initialized (model={self.config.model}, n=2)")
+                print(f"[MULTI-CANDIDATE] Initialized (model={_pipeline_model}, n=2)")
                 # Week 4: Adaptive Temperature Strategy
                 try:
                     history_dir = Path(self.config.working_dir) / ".qwencode"
@@ -395,6 +409,20 @@ Current working directory: {working_dir}
                 self.outcome_tracker = OutcomeTracker(db_path=_ot_path)
             except Exception as _ot_err:
                 print(f"[OUTCOME] Init failed: {_ot_err}")
+
+        # Week 23: Research Agent (web search + local DB → DEEP3/DEEP6)
+        self.research_agent = None
+        if HAS_RESEARCH_AGENT:
+            try:
+                from .research_context import ResearchConfig as _RC
+                _rc = _RC(search_backend=self.config.search_backend)
+                self.research_agent = ResearchAgent(
+                    web_search_fn=self.web_search,
+                    config=_rc,
+                )
+                print(f"[RESEARCH] Agent initialized (local DBs: {os.path.isfile(_rc.news_db_path)}/{os.path.isfile(_rc.releases_db_path)})")
+            except Exception as _ra_err:
+                print(f"[RESEARCH] Init failed: {_ra_err}")
 
         # Sub-agent manager (needs LLM client)
         self.subagent_manager = SubAgentManager(self._call_llm_simple)
@@ -482,6 +510,12 @@ Current working directory: {working_dir}
             "correction_iterations_total": 0,
             "correction_improvements": 0,
             "correction_all_passed_after": 0,  # Times correction led to all_passed
+            # Week 23: Research Agent
+            "research_runs": 0,
+            "research_web_hits": 0,
+            "research_local_hits": 0,
+            "research_deep3": 0,
+            "research_deep6": 0,
         }
 
         # Mode tracking
@@ -1011,36 +1045,94 @@ Task: {user_input}"""
                 except Exception:
                     pass  # Graceful degradation
 
-        # STEP 1.8: SEARCH MODE — чистый веб-поиск БЕЗ LLM
+        # STEP 1.88: Research Agent — web search + local DB for complex tasks
+        _research_context = ""
+        if self.research_agent and task_context and self.research_agent.should_research(task_context):
+            try:
+                yield {"event": "research_progress", "data": {"status": "starting", "query": user_input[:100]}}
+
+                def _research_progress(status, data):
+                    pass  # SSE events yielded via main generator below
+
+                _research_result = self.research_agent.research(
+                    query=user_input,
+                    task_context=task_context,
+                )
+                _research_context = _research_result.research_context
+                oss_context = (oss_context + "\n\n" + _research_context) if oss_context else _research_context
+                task_context.use_research = True
+
+                # Update stats
+                self.stats["research_runs"] += 1
+                self.stats["research_web_hits"] += len(_research_result.web_results)
+                self.stats["research_local_hits"] += len(_research_result.local_results)
+                if _research_result.deep_mode == "DEEP6":
+                    self.stats["research_deep6"] += 1
+                    self.search_deep_analysis_mode = ExecutionMode.DEEP6
+                else:
+                    self.stats["research_deep3"] += 1
+                    self.search_deep_analysis_mode = ExecutionMode.DEEP3
+
+                yield {"event": "research_progress", "data": {
+                    "status": "complete",
+                    "sources": _research_result.sources_count,
+                    "deep_mode": _research_result.deep_mode,
+                    "time": round(_research_result.total_time, 2),
+                    "web_count": len(_research_result.web_results),
+                    "local_count": len(_research_result.local_results),
+                }}
+                yield {"event": "status", "text": f"Research: {_research_result.sources_count} sources found, mode={_research_result.deep_mode} ({_research_result.total_time:.1f}s)"}
+            except Exception as _ra_err:
+                yield {"event": "status", "text": f"Research skipped: {_ra_err}"}
+
+        # STEP 1.8: SEARCH MODE — веб-поиск
+        # If the request is code generation, search results become LLM context
+        # (search AUGMENTS generation). Otherwise, return raw search results.
         if self.current_mode == ExecutionMode.SEARCH:
             yield {"event": "status", "text": "🌐 Searching the web..."}
             search_result = self.web_search(user_input)
 
             if search_result["success"] and search_result["results"]:
-                # Форматируем результаты без LLM
-                response_lines = [f"🌐 **Web Search Results for:** \"{user_input}\"\n"]
-
-                for i, r in enumerate(search_result["results"][:7], 1):
-                    title = r.get('title', 'No title')
-                    text = r.get('text', '')[:300]
-                    url = r.get('url', '')
-
-                    response_lines.append(f"**{i}. {title}**")
-                    if text:
-                        response_lines.append(f"   {text}...")
-                    if url:
-                        response_lines.append(f"   🔗 {url}")
-                    response_lines.append("")
-
-                response_lines.append(f"---\n*Found {len(search_result['results'])} results*")
-
-                yield {"event": "response", "text": "\n".join(response_lines), "route_method": "web_search_only"}
-                yield {"event": "done"}
-                return
+                if _is_codegen:
+                    # CODE-GEN + SEARCH: inject search results as context for LLM
+                    search_context_lines = ["## Web Search Context\n"]
+                    for i, r in enumerate(search_result["results"][:5], 1):
+                        title = r.get('title', 'No title')
+                        text = r.get('text', '')[:400]
+                        url = r.get('url', '')
+                        search_context_lines.append(f"{i}. **{title}**")
+                        if text:
+                            search_context_lines.append(f"   {text}")
+                        if url:
+                            search_context_lines.append(f"   Source: {url}")
+                    search_context = "\n".join(search_context_lines)
+                    oss_context = (oss_context + "\n\n" + search_context) if oss_context else search_context
+                    yield {"event": "status", "text": f"🌐 Found {len(search_result['results'])} sources, generating code..."}
+                    # Fall through to code generation at STEP 1.9
+                else:
+                    # NON-CODE query in SEARCH mode: return raw results
+                    response_lines = [f"🌐 **Web Search Results for:** \"{user_input}\"\n"]
+                    for i, r in enumerate(search_result["results"][:7], 1):
+                        title = r.get('title', 'No title')
+                        text = r.get('text', '')[:300]
+                        url = r.get('url', '')
+                        response_lines.append(f"**{i}. {title}**")
+                        if text:
+                            response_lines.append(f"   {text}...")
+                        if url:
+                            response_lines.append(f"   🔗 {url}")
+                        response_lines.append("")
+                    response_lines.append(f"---\n*Found {len(search_result['results'])} results*")
+                    yield {"event": "response", "text": "\n".join(response_lines), "route_method": "web_search_only"}
+                    yield {"event": "done"}
+                    return
             else:
-                yield {"event": "response", "text": f"🌐 Search failed: {search_result.get('error', 'No results')}", "route_method": "web_search_only"}
-                yield {"event": "done"}
-                return
+                if not _is_codegen:
+                    yield {"event": "response", "text": f"🌐 Search failed: {search_result.get('error', 'No results')}", "route_method": "web_search_only"}
+                    yield {"event": "done"}
+                    return
+                # Code-gen with failed search: continue without search context
+                yield {"event": "status", "text": "🌐 Search returned no results, generating code..."}
 
         # STEP 1.9: Multi-Candidate Generation (for pure code-gen tasks)
         if _is_codegen:
@@ -1080,12 +1172,19 @@ Task: {user_input}"""
                     validation_profile=task_context.validation_profile if task_context else None,
                 )
                 # Phase 1: pipeline_start event
+                _gen_model = getattr(self.multi_candidate_pipeline, '_adapter_model', None)
+                if not _gen_model:
+                    try:
+                        _gen_model = self.multi_candidate_pipeline.generator.llm.model_name
+                    except Exception:
+                        _gen_model = self.config.pipeline_model or self.config.model
                 yield {
                     "event": "pipeline_start",
                     "n_candidates": n_cands,
                     "complexity": adaptive_config.complexity.value if adaptive_config else "unknown",
                     "temperatures": temperatures or [],
                     "validation_profile": task_context.validation_profile.value if task_context else "balanced",
+                    "model": _gen_model,
                 }
                 mc_result = self.multi_candidate_pipeline.run_sync(**_pipeline_kwargs)
                 self.stats["multi_candidate_runs"] += 1
@@ -2327,21 +2426,25 @@ Use /mode fast|deep3|deep|search to switch"""}
     # Compiled regex patterns for code-gen detection (class-level, compiled once)
     _CODEGEN_PATTERNS = [
         # --- English patterns (broad) ---
-        # "write/create/generate ... in Python/Java/etc"
-        re.compile(r"(?:write|create|generate|implement|make|build)\s+.*\b(?:in|using|with)\s+(?:python|java|javascript|typescript|c\+\+|c#|go|rust|php|ruby)\b"),
-        # "write a function/class/script/code/program/algorithm/dockerfile/makefile"
-        re.compile(r"(?:write|create|generate)\s+(?:a\s+)?(?:\w+\s+)?(?:function|class|script|code|module|test|program|algorithm|method|dockerfile|makefile|yaml|terraform)\b"),
+        # "write/create/generate ... in/for/using/with Python/Java/etc"
+        re.compile(r"(?:write|create|generate|implement|make|build)\s+.*\b(?:in|for|using|with)\s+(?:python|java|javascript|typescript|c\+\+|c#|go|rust|php|ruby)\b"),
+        # "write a function/class/script/code/program/algorithm/dockerfile/makefile/workflow/manifest/config"
+        re.compile(r"(?:write|create|generate)\s+(?:a\s+)?(?:[\w\-]+\s+){0,4}(?:function|class|script|code|module|test|program|algorithm|method|decorator|fixture|fixtures|endpoint|middleware|helper|validator|sanitizer|client|server|handler|parser|pool|wrapper|pipeline|emitter)\b"),
+        # DevOps/infra artifacts (multi-word targets like "GitHub Actions workflow")
+        re.compile(r"(?:write|create|generate)\s+(?:[\w\-]+\s+){0,4}(?:dockerfile|makefile|yaml|yml|terraform|workflow|manifest|pipeline|playbook|helm\s*chart|docker[\-\s]compose)\b"),
         # "implement a/the ..."
         re.compile(r"implement\s+(?:a\s+|the\s+)?"),
         # Common algorithm/DS names → codegen intent
-        re.compile(r"\b(?:bubble\s*sort|quick\s*sort|merge\s*sort|insertion\s*sort|selection\s*sort|binary\s*search|linked\s*list|hash\s*table|binary\s*tree|stack|queue)\b.*\b(?:in|python|java|implement|write|code)\b"),
+        re.compile(r"\b(?:bubble\s*sort|quick\s*sort|merge\s*sort|insertion\s*sort|selection\s*sort|binary\s*search|linked\s*list|hash\s*table|binary\s*tree|stack|queue|lru\s*cache|dijkstra|fibonacci)\b.*\b(?:in|python|java|implement|write|code)\b"),
         # "python/java/... code/function/script for ..."
-        re.compile(r"\b(?:python|java|javascript|go|rust)\s+(?:code|function|script|program)\s+(?:for|to|that)\b"),
+        re.compile(r"\b(?:python|java|javascript|go|rust)\s+(?:code|function|script|program|class|decorator|module)\s+(?:for|to|that)\b"),
         # "code a/the ..."
         re.compile(r"\bcode\s+(?:a|the)\s+"),
+        # DevOps-specific: "Dockerfile for ...", "Kubernetes ... manifest", "Terraform ... module"
+        re.compile(r"\b(?:dockerfile|docker[\-\s]compose|kubernetes|terraform|github\s+actions|helm|ansible|nginx)\b.*\b(?:for|with|module|manifest|workflow|config|playbook|chart)\b"),
         # --- Russian patterns (broad) ---
         re.compile(r"(?:напиши|написать|напишите)\s+"),
-        re.compile(r"(?:создай|создать|создайте)\s+(?:\w+\s+)?(?:функцию|класс|скрипт|код|модуль|тест|сортировку|алгоритм|программу|dockerfile|makefile)"),
+        re.compile(r"(?:создай|создать|создайте)\s+(?:\w+\s+)?(?:функцию|класс|скрипт|код|модуль|тест|сортировку|алгоритм|программу|декоратор|эндпоинт|dockerfile|makefile)"),
         re.compile(r"реализуй\s+"),
         re.compile(r"(?:сгенерируй|сгенерировать)\s+"),
         re.compile(r"(?:закодируй|закодировать|запрограммируй|запрограммировать)\s+"),
@@ -2355,7 +2458,7 @@ Use /mode fast|deep3|deep|search to switch"""}
         re.compile(r"\bchange\s+\w+\.\w+"),
         re.compile(r"\bfix\s+in\s+"),
         re.compile(r"\bread\s+(?:file|the\s+file)\b"),
-        re.compile(r"\.\w{1,4}\s"),  # ".py ", ".yaml ", ".json " etc.
+        re.compile(r"(?<!compose)(?<!makefile)[a-z]{2,}\.(?!yml\b)(?!yaml\b)\w{2,4}\s"),  # "main.py " — not "compose.yml" or ".yaml"
         re.compile(r"\bфайл\s+\w+"),
         re.compile(r"\bисправь\s+в\s+"),
         re.compile(r"\bизмени\s+в\s+"),
@@ -2825,7 +2928,7 @@ Use /mode fast|deep3|deep|search to switch"""}
             }
         return {"success": False, "error": "No cache for this category"}
 
-    def web_search(self, query: str) -> Dict[str, Any]:
+    def web_search(self, query: str, num_results: int = 5) -> Dict[str, Any]:
         """
         Поиск в интернете для DEEP SEARCH режима.
         Fallback chain: configured backend -> alternate backend -> SWECAS cache.
@@ -2853,10 +2956,10 @@ Use /mode fast|deep3|deep|search to switch"""}
             try:
                 if engine == "searxng":
                     result = ExtendedTools.web_search_searxng(
-                        query, num_results=5, searxng_url=self.config.searxng_url
+                        query, num_results=num_results, searxng_url=self.config.searxng_url
                     )
                 else:
-                    result = ExtendedTools.web_search(query, num_results=5)
+                    result = ExtendedTools.web_search(query, num_results=num_results)
 
                 if result.get("success"):
                     # Normalize result format

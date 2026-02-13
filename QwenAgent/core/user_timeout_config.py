@@ -44,7 +44,7 @@ class UserTimeoutPreferences:
     Технические параметры (ttft, idle, absolute) вычисляются автоматически.
     """
     # === Таймауты ===
-    max_wait: float = 120.0          # Макс. время ожидания ответа (секунды)
+    max_wait: float = 600.0          # Макс. время ожидания ответа (10 мин, CPU-friendly)
     on_timeout: str = "degrade"      # Что делать при таймауте: degrade | abort | ask
     risk_tolerance: str = "balanced" # Допустимый риск: conservative | balanced | aggressive
 
@@ -54,8 +54,8 @@ class UserTimeoutPreferences:
     fallback_model: str = ""         # Модель для fallback
 
     # === Режимы ===
-    deep_mode_budget: float = 300.0  # Бюджет для DEEP режима (5 мин)
-    fast_mode_budget: float = 120.0  # Бюджет для FAST режима (2 мин для CPU)
+    deep_mode_budget: float = 600.0  # Бюджет для DEEP режима (10 мин, CPU)
+    fast_mode_budget: float = 300.0  # Бюджет для FAST режима (5 мин, CPU)
 
     def to_timeout_config(self) -> TimeoutConfig:
         """
@@ -68,21 +68,21 @@ class UserTimeoutPreferences:
         """
         if self.priority == "speed":
             return TimeoutConfig(
-                ttft_timeout=10,
-                idle_timeout=8,
-                absolute_max=min(self.max_wait, 60)
+                ttft_timeout=60,
+                idle_timeout=30,
+                absolute_max=min(self.max_wait, 180)
             )
         elif self.priority == "quality":
             return TimeoutConfig(
-                ttft_timeout=45,
-                idle_timeout=30,
+                ttft_timeout=180,
+                idle_timeout=60,
                 absolute_max=min(self.max_wait, 600)
             )
         else:  # balanced
             return TimeoutConfig(
-                ttft_timeout=45,    # CPU может требовать 30+ сек на prefill
-                idle_timeout=25,    # Между токенами на CPU
-                absolute_max=min(self.max_wait, 300)
+                ttft_timeout=120,   # CPU: 7B может грузиться 60+ сек
+                idle_timeout=60,    # CPU: между токенами может быть пауза
+                absolute_max=min(self.max_wait, 600)
             )
 
     def get_model_config(self) -> Dict[str, str]:

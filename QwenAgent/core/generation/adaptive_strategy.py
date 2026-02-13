@@ -100,7 +100,7 @@ _COMPLEX_KEYWORDS = re.compile(
     r"(?:\b(?:middleware|parser|design\s*pattern|api|database|orm|"
     r"websocket|microservice|pipeline|scheduler|queue|cache\s*system|"
     r"state\s*machine|compiler|interpreter|protocol|distributed|"
-    r"algorithm|tree|graph\s*traversal|dynamic\s*programming)\b"
+    r"algorithm|tree|graph\s*traversal|dynamic\s*programming|decorator)\b"
     r"|(?:парсер|паттерн\s*проектирования|баз\w*\s*данн\w*|микросервис|"
     r"планировщик|очеред|компилятор|интерпретатор|протокол|"
     r"алгоритм|распределённ|конечн\w*\s*автомат|кэш\s*систем))",

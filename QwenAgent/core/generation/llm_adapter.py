@@ -36,16 +36,19 @@ class AsyncLLMAdapter:
         client,
         model: str = "qwen2.5-coder:7b",
         timeout_config=None,
+        max_tokens: int = 0,
     ):
         """
         Args:
             client: StreamingLLMClient (async) or TimeoutLLMClient (sync).
             model: Ollama model name to use for generation.
             timeout_config: Optional TimeoutConfig override per-call.
+            max_tokens: Max tokens per generation (0 = unlimited).
         """
         self._client = client
         self._model = model
         self._timeout_config = timeout_config
+        self._max_tokens = max_tokens
         self._is_async = hasattr(client, "generate_stream")  # StreamingLLMClient
 
     @property
@@ -65,6 +68,8 @@ class AsyncLLMAdapter:
         Maps to Ollama's `options` field in the request body.
         """
         options = {"temperature": temperature, "seed": seed}
+        if self._max_tokens > 0:
+            options["num_predict"] = self._max_tokens
 
         if self._is_async:
             return await self._client.generate(

@@ -101,6 +101,14 @@ export class ValidationMatrix {
             'shellcheck': 'Shell',
             'helm_lint': 'Helm',
             'docker_compose': 'Compose',
+            // Week 22 quality validators
+            'search_guard': 'Guard',
+            'promise_checker': 'Promise',
+            'antipattern': 'Anti',
+            'extended_domain': 'Domain',
+            'production_ready': 'Prod',
+            'async_safety': 'Async',
+            'exception_hierarchy': 'ExcHier',
         };
         return map[name] || name.replace(/^(static_|external_)/, '').slice(0, 8);
     }

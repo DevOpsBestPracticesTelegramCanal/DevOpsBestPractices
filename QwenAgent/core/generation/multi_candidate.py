@@ -68,6 +68,9 @@ class MultiCandidateConfig:
     # Hard wall for the whole batch
     total_timeout: float = 120.0
 
+    # Max tokens per candidate (0 = unlimited, model decides)
+    max_tokens: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Generator

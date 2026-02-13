@@ -64,6 +64,7 @@ class PipelineMonitor {
             state.pipelineData.result = null;
             state.pipelineData.correctionData = null;
             state.pipelineData.stages = [];
+            state.pipelineData.generationModel = event.model || null;
             this._startTime = performance.now();
             this._setStageStatus('generate', 'active', event);
             this._render();
@@ -170,6 +171,7 @@ class PipelineMonitor {
                 ${tc.complexity ? `<div class="pm-kv"><span>Complexity</span><span class="pm-val">${escapeHtml(tc.complexity)}</span></div>` : ''}
                 ${tc.swecas_code ? `<div class="pm-kv"><span>SWECAS</span><span class="pm-val">${tc.swecas_code}</span></div>` : ''}
                 ${tc.ducs_code ? `<div class="pm-kv"><span>DUCS</span><span class="pm-val">${tc.ducs_code}</span></div>` : ''}
+                ${pd.generationModel ? `<div class="pm-kv"><span>Gen Model</span><span class="pm-val pm-model">${escapeHtml(pd.generationModel)}</span></div>` : ''}
             </div>`;
         }
 
