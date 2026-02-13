@@ -81,6 +81,7 @@ class TaskContext:
     is_command: bool = False
     use_multi_candidate: bool = False
     use_deep_mode: bool = False
+    use_research: bool = False  # Week 23: auto web research for complex tasks
 
     # Validation control
     fail_fast: bool = False
@@ -102,6 +103,7 @@ class TaskContext:
             "is_command": self.is_command,
             "use_multi_candidate": self.use_multi_candidate,
             "use_deep_mode": self.use_deep_mode,
+            "use_research": self.use_research,
             "fail_fast": self.fail_fast,
             "parallel_validation": self.parallel_validation,
             "timestamp": self.timestamp,
@@ -165,7 +167,7 @@ _ALL_RULE_NAMES = [
     "oss_patterns",
 ]
 
-# Week 22: Quality validator rule names
+# Week 22-24: Quality validator rule names
 _QUALITY_RULE_NAMES = [
     "search_guard",
     "promise_checker",
@@ -174,6 +176,11 @@ _QUALITY_RULE_NAMES = [
     "production_ready",
     "async_safety",
     "exception_hierarchy",
+    # Week 24
+    "signature_checker",
+    "runtime_test",
+    # Week 25
+    "decorator_red_flags",
 ]
 
 # Profile → validation config
@@ -196,6 +203,11 @@ _PROFILE_CONFIGS: Dict[ValidationProfile, Dict[str, Any]] = {
             "search_guard",
             "promise_checker",
             "antipattern",
+            # Week 24: signature + runtime
+            "signature_checker",
+            "runtime_test",
+            # Week 25: decorator checks
+            "decorator_red_flags",
         ],
         "fail_fast": False,
         "parallel": True,
@@ -210,6 +222,11 @@ _PROFILE_CONFIGS: Dict[ValidationProfile, Dict[str, Any]] = {
             "production_ready",
             "async_safety",
             "exception_hierarchy",
+            # Week 24
+            "signature_checker",
+            "runtime_test",
+            # Week 25
+            "decorator_red_flags",
         ],
         "fail_fast": True,
         "parallel": True,

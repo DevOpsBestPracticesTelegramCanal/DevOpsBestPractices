@@ -652,10 +652,16 @@ class MultiCandidatePipeline:
 
             t = threading.Thread(target=_worker, daemon=False)
             t.start()
-            t.join(timeout=660)  # match total_timeout ceiling
+            gen_timeout = 120.0  # default fallback
+            if self.config.generation_config:
+                gen_timeout = self.config.generation_config.total_timeout
+            sync_timeout = gen_timeout + 60  # headroom for validation + scoring
+            t.join(timeout=sync_timeout)
 
             if t.is_alive():
-                raise TimeoutError("Pipeline timed out (660s) in non-daemon thread")
+                raise TimeoutError(
+                    f"Pipeline timed out ({sync_timeout:.0f}s) in non-daemon thread"
+                )
             if error_box:
                 raise error_box[0]
             if not result_box:

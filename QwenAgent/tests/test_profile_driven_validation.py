@@ -104,7 +104,7 @@ class TestProfileRuleSelection:
     def test_balanced_seven_rules(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.BALANCED)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 10  # 7 original + 3 quality (Week 22)
+        assert len(rules) == 13  # 7 original + 3 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
         rule_names = [r.name for r in rules]
         assert "ast_syntax" in rule_names
         assert "no_forbidden_imports" in rule_names
@@ -117,16 +117,19 @@ class TestProfileRuleSelection:
         assert "search_guard" in rule_names
         assert "promise_checker" in rule_names
         assert "antipattern" in rule_names
+        # Week 24
+        assert "signature_checker" in rule_names
+        assert "runtime_test" in rule_names
 
     def test_safe_fix_all_rules(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.SAFE_FIX)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 15  # 8 original + 7 quality (Week 22)
+        assert len(rules) == 18  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
 
     def test_critical_all_rules(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.CRITICAL)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 15  # 8 original + 7 quality (Week 22)
+        assert len(rules) == 18  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
 
     def test_fast_dev_no_fail_fast(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.FAST_DEV)
@@ -271,7 +274,7 @@ class TestEndToEndProfileFlow:
 
         cfg = TaskAbstraction.get_validation_config(ctx.validation_profile)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 15  # 8 original + 7 quality (Week 22)
+        assert len(rules) == 18  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is False
 
@@ -283,7 +286,7 @@ class TestEndToEndProfileFlow:
 
         cfg = TaskAbstraction.get_validation_config(ctx.validation_profile)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 10  # 7 original + 3 quality (Week 22)
+        assert len(rules) == 13  # 7 original + 3 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
 
     def test_complex_codegen_safe_fix(self):
         """Complex codegen → HIGH risk → SAFE_FIX profile → all 15 rules."""
@@ -292,7 +295,7 @@ class TestEndToEndProfileFlow:
         assert ctx.validation_profile == ValidationProfile.SAFE_FIX
 
         cfg = TaskAbstraction.get_validation_config(ctx.validation_profile)
-        assert len(cfg["rule_names"]) == 15  # 8 + 7 quality (Week 22)
+        assert len(cfg["rule_names"]) == 18  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is True
 
@@ -329,7 +332,7 @@ class TestPipelineProfileIntegration:
         cfg2 = TaskAbstraction.get_validation_config(ValidationProfile.CRITICAL)
         rules2 = build_rules_for_names(cfg2["rule_names"])
         validator2 = RuleRunner(rules2)
-        assert len(validator2.rules) == 15  # 8 + 7 quality (Week 22)
+        assert len(validator2.rules) == 18  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
 
     def test_profile_resolution_builds_correct_selector(self):
         """When validation_profile is set, correct scoring weights are used."""

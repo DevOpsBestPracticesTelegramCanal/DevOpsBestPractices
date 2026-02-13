@@ -454,6 +454,28 @@ try:
 except ImportError:
     pass
 
+# Week 24: Register signature checker and runtime test rules
+try:
+    from .signature_checker import SignatureCheckerRule
+    from .runtime_test import RuntimeTestRule
+
+    _RULE_REGISTRY.update({
+        "signature_checker": SignatureCheckerRule,
+        "runtime_test": RuntimeTestRule,
+    })
+except ImportError:
+    pass
+
+# Week 25: Register decorator red-flags rule
+try:
+    from .decorator_red_flags import DecoratorRedFlagsRule
+
+    _RULE_REGISTRY.update({
+        "decorator_red_flags": DecoratorRedFlagsRule,
+    })
+except ImportError:
+    pass
+
 
 def build_rules_for_names(names: List[str]) -> List[Rule]:
     """Build a list of Rule instances from rule names.

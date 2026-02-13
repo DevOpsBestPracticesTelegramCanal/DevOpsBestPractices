@@ -231,13 +231,13 @@ class TestValidationConfig:
 
     def test_safe_fix_config(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.SAFE_FIX)
-        assert len(cfg["rule_names"]) == 15  # 8 + 7 quality (Week 22)
+        assert len(cfg["rule_names"]) == 18  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is True
 
     def test_critical_config(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.CRITICAL)
-        assert len(cfg["rule_names"]) == 15  # 8 + 7 quality (Week 22)
+        assert len(cfg["rule_names"]) == 18  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is False  # Sequential for max safety
 
