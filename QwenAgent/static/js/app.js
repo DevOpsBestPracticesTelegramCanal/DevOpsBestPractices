@@ -19,6 +19,7 @@ import { parallelView } from './modules/parallel-view.js';
 import { dualMode } from './modules/dual-mode.js';
 import { streamingRenderer } from './modules/streaming-renderer.js';
 import { timeoutMenu } from './modules/timeout-menu.js';
+import { validationForm } from './modules/validation-form.js';
 import eventBus from './modules/event-bus.js';
 
 // Wire SSE events to choice/approval handlers
@@ -48,6 +49,13 @@ function initSettings() {
     const btn = document.getElementById('settings-btn');
     if (btn) {
         btn.addEventListener('click', () => settingsPanel.open());
+    }
+}
+
+function initValidationForm() {
+    const btn = document.getElementById('validate-btn');
+    if (btn) {
+        btn.addEventListener('click', () => validationForm.open());
     }
 }
 
@@ -91,6 +99,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 8. Settings
     initSettings();
+
+    // 8b. Validation Form
+    initValidationForm();
 
     // 9. Deep Wizard (Minsky 6-step)
     deepWizard.init();

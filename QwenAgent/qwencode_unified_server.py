@@ -250,6 +250,11 @@ def sse_response_done(content: str, message_id: str) -> str:
     return sse_event("response_done", {"content": content, "message_id": message_id})
 
 
+def sse_research_progress(data: Dict) -> str:
+    """Week 23: Research agent progress event"""
+    return sse_event("research_progress", data)
+
+
 # ============================================================================
 # RESULT FORMATTERS
 # ============================================================================
@@ -872,6 +877,9 @@ def chat_stream():
                             yield sse_response_token(evt.get("token", ""), evt.get("message_id", ""))
                         elif evt_type == "response_done":
                             yield sse_response_done(evt.get("content", ""), evt.get("message_id", ""))
+                        # Week 23: Research Agent events — passthrough
+                        elif evt_type == "research_progress":
+                            yield sse_research_progress(evt.get("data", evt))
                         # Phase 7: Working Memory events — passthrough
                         elif evt_type == "working_memory":
                             yield sse_working_memory(evt)
@@ -1022,10 +1030,11 @@ if HAS_AGENT:
     try:
         agent = QwenCodeAgent(QwenCodeConfig(
             ollama_url=config.ollama_url,
-            model=config.heavy_model,
+            model=config.fast_model,           # Fast model for chat _call_llm()
+            pipeline_model=config.heavy_model,  # Heavy model for multi-candidate pipeline
             working_dir=config.project_root,
         ))
-        print(f"[AGENT] Initialized (model={config.heavy_model})")
+        print(f"[AGENT] Initialized (chat={config.fast_model}, pipeline={config.heavy_model})")
     except Exception as _agent_init_err:
         print(f"[AGENT] Init failed: {_agent_init_err}")
 
@@ -1135,39 +1144,37 @@ def warmup_model(auto_start: bool = True):
             print("  [WARMUP] Ollama not running! Start with: ollama serve")
             return False
 
-    # Step 2: Warmup the model
-    print(f"\n  [WARMUP] Прогрев модели: {config.fast_model}")
+    # Step 2: Warmup both models (fast + heavy for pipeline)
+    models_to_warm = [config.fast_model]
+    if config.heavy_model and config.heavy_model != config.fast_model:
+        models_to_warm.append(config.heavy_model)
 
-    start = time.time()
+    for model_name in models_to_warm:
+        print(f"\n  [WARMUP] Прогрев модели: {model_name}")
+        start = time.time()
+        try:
+            response = requests.post(
+                f"{config.ollama_url}/api/generate",
+                json={
+                    "model": model_name,
+                    "prompt": "Say OK",
+                    "stream": False,
+                    "options": {"num_predict": 5}
+                },
+                timeout=120
+            )
+            elapsed = time.time() - start
+            if response.status_code == 200:
+                result = response.json().get("response", "").strip()
+                print(f"  [WARMUP] {model_name} loaded in {elapsed:.1f}s, test: '{result}'")
+            else:
+                print(f"  [WARMUP] {model_name} error: HTTP {response.status_code}")
+        except requests.exceptions.ConnectionError:
+            print(f"  [WARMUP] {model_name} connection failed")
+        except Exception as e:
+            print(f"  [WARMUP] {model_name} error: {e}")
 
-    try:
-        response = requests.post(
-            f"{config.ollama_url}/api/generate",
-            json={
-                "model": config.fast_model,
-                "prompt": "Say OK",
-                "stream": False,
-                "options": {"num_predict": 5}
-            },
-            timeout=120
-        )
-
-        elapsed = time.time() - start
-
-        if response.status_code == 200:
-            result = response.json().get("response", "").strip()
-            print(f"  [WARMUP] Loaded in {elapsed:.1f}s, test: '{result}'")
-            return True
-        else:
-            print(f"  [WARMUP] Error: HTTP {response.status_code}")
-            return False
-
-    except requests.exceptions.ConnectionError:
-        print(f"  [WARMUP] Connection failed after Ollama start")
-        return False
-    except Exception as e:
-        print(f"  [WARMUP] Error: {e}")
-        return False
+    return True
 
 
 # ============================================================================
@@ -1452,6 +1459,16 @@ def get_stats():
     return jsonify(stats_data)
 
 
+# Week 23: Research Agent REST endpoint
+
+@app.route('/api/research/stats', methods=['GET'])
+def research_stats():
+    """Get research agent statistics"""
+    if agent and hasattr(agent, 'research_agent') and agent.research_agent:
+        return jsonify(agent.research_agent.get_stats())
+    return jsonify({"error": "Research agent not available"}), 503
+
+
 # Phase 1: Pipeline Monitor REST endpoints
 
 @app.route('/api/pipeline/status', methods=['GET'])
@@ -1520,7 +1537,9 @@ def pipeline_config():
             "max_validation_workers": cfg.max_validation_workers,
             "validation_cache_enabled": cfg.validation_cache_enabled,
             "max_validation_cache_size": cfg.max_validation_cache_size,
-            "fail_fast": cfg.fail_fast,
+            "fail_fast_validation": cfg.fail_fast_validation,
+            "quality_escalation": cfg.quality_escalation,
+            "initial_quality_level": cfg.initial_quality_level,
         })
 
     # POST: update config
@@ -1534,8 +1553,12 @@ def pipeline_config():
         cfg.max_validation_workers = int(data["max_validation_workers"])
     if "validation_cache_enabled" in data:
         cfg.validation_cache_enabled = bool(data["validation_cache_enabled"])
-    if "fail_fast" in data:
-        cfg.fail_fast = bool(data["fail_fast"])
+    if "fail_fast_validation" in data:
+        cfg.fail_fast_validation = bool(data["fail_fast_validation"])
+    if "quality_escalation" in data:
+        cfg.quality_escalation = bool(data["quality_escalation"])
+    if "initial_quality_level" in data:
+        cfg.initial_quality_level = str(data["initial_quality_level"])
     return jsonify({"success": True, "updated": list(data.keys())})
 
 
@@ -1593,6 +1616,79 @@ def pipeline_profiles():
         return jsonify({"profiles": [], "error": "TaskAbstraction not available"})
     except Exception as e:
         return jsonify({"profiles": [], "error": str(e)})
+
+
+@app.route('/api/validate/code', methods=['POST'])
+def validate_code_manual():
+    """Run validation rules against user-provided code snippet."""
+    data = request.json or {}
+    code = data.get('code', '')
+    profile_name = data.get('profile', 'balanced')
+
+    if not code.strip():
+        return jsonify({"error": "No code provided", "results": []}), 400
+
+    try:
+        from core.task_abstraction import ValidationProfile, TaskAbstraction
+        from code_validator.rules.python_validators import build_rules_for_names
+        from code_validator.rules.base import RuleRunner
+
+        # Resolve profile
+        profile = None
+        for p in ValidationProfile:
+            if p.value.lower() == profile_name.lower():
+                profile = p
+                break
+        if profile is None:
+            profile = list(ValidationProfile)[0]  # fallback to first
+
+        cfg = TaskAbstraction.get_validation_config(profile)
+        rule_names = cfg.get('rule_names', [])
+        fail_fast = cfg.get('fail_fast', False)
+        parallel = cfg.get('parallel', True)
+
+        rules = build_rules_for_names(rule_names)
+        if not rules:
+            return jsonify({
+                "profile": profile.value,
+                "rules_count": 0,
+                "passed": 0,
+                "failed": 0,
+                "score": 0.0,
+                "results": [],
+                "error": "No rules found for profile",
+            })
+
+        runner = RuleRunner(rules)
+        results = runner.run(code, fail_fast=fail_fast, parallel=parallel)
+
+        passed = sum(1 for r in results if r.passed)
+        failed = len(results) - passed
+        avg_score = sum(r.score for r in results) / len(results) if results else 0.0
+
+        return jsonify({
+            "profile": profile.value,
+            "rules_count": len(results),
+            "passed": passed,
+            "failed": failed,
+            "score": round(avg_score, 4),
+            "results": [
+                {
+                    "rule_name": r.rule_name,
+                    "passed": r.passed,
+                    "score": round(r.score, 4),
+                    "severity": r.severity.value,
+                    "messages": r.messages,
+                    "duration": round(r.duration * 1000, 2),
+                }
+                for r in results
+            ],
+        })
+    except ImportError as e:
+        return jsonify({"error": f"Import error: {e}", "results": []}), 500
+    except Exception as e:
+        app.logger.error("validate_code_manual error: %s", e, exc_info=True)
+        return jsonify({"error": str(e), "results": []}), 500
 
 
 # Phase 4: Dashboard & Analytics REST endpoints
