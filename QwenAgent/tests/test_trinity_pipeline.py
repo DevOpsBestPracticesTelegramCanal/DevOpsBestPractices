@@ -581,3 +581,58 @@ class TestToggleStrategyChange:
         # select_for_candidate should fall through to the else branch (rotate)
         model = m.select_for_candidate(0)
         assert model in TRINITY_MODELS.values()
+
+
+# ============================================================
+# Week 29: _extract_code — <think> tag stripping for reasoning models
+# ============================================================
+
+class TestExtractCodeThinkTags:
+    """Verify _extract_code strips <think> blocks from deepseek-r1 output."""
+
+    @staticmethod
+    def _extract(raw):
+        from core.generation.multi_candidate import MultiCandidateGenerator
+        return MultiCandidateGenerator._extract_code(raw)
+
+    def test_strips_think_tags_with_code_fence(self):
+        raw = '<think>\nLet me reason about fibonacci...\n</think>\n\n```python\ndef fib(n):\n    return n if n < 2 else fib(n-1) + fib(n-2)\n```'
+        result = self._extract(raw)
+        assert result == "def fib(n):\n    return n if n < 2 else fib(n-1) + fib(n-2)"
+        assert "<think>" not in result
+
+    def test_strips_think_tags_without_code_fence(self):
+        raw = '<think>\nThinking about this...\n</think>\n\ndef hello():\n    print("hello")'
+        result = self._extract(raw)
+        assert "def hello():" in result
+        assert "<think>" not in result
+
+    def test_multiple_think_blocks(self):
+        raw = '<think>first thought</think>\nsome code\n<think>second thought</think>\nmore code'
+        result = self._extract(raw)
+        assert "<think>" not in result
+        assert "some code" in result
+        assert "more code" in result
+
+    def test_no_think_tags_unchanged(self):
+        raw = '```python\nprint("hello")\n```'
+        result = self._extract(raw)
+        assert result == 'print("hello")'
+
+    def test_plain_code_unchanged(self):
+        raw = 'def add(a, b):\n    return a + b'
+        result = self._extract(raw)
+        assert result == raw
+
+    def test_think_only_output_fallback(self):
+        """If entire output is <think> tags, fall back to raw."""
+        raw = '<think>All reasoning, no code</think>'
+        result = self._extract(raw)
+        # Should not be empty — falls back to raw stripped
+        assert len(result) > 0
+
+    def test_nested_code_fence_inside_think(self):
+        """Code fence inside <think> should be ignored; outer code kept."""
+        raw = '<think>\n```python\nbad_code()\n```\n</think>\n\n```python\ngood_code()\n```'
+        result = self._extract(raw)
+        assert result == "good_code()"

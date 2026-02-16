@@ -24,6 +24,7 @@ from typing import List, Optional, Protocol, Tuple
 from .candidate import Candidate, CandidatePool
 from .generator_roles import (
     GeneratorRole,
+    GENERATOR_ROLES,
     get_role_for_candidate,
     build_role_system_prompt,
 )
@@ -177,15 +178,41 @@ class MultiCandidateGenerator:
                 logger.error("[MultiCandidate] candidate %d failed: %s", i, exc)
         return results
 
+    # Week 29: Mapping from Trinity roles to GeneratorRole prompts.
+    # Ensures each model architecture gets a system prompt aligned with its
+    # strength: Architect→correctness, Developer→readability, Reviewer→security.
+    _TRINITY_ROLE_MAP = {
+        "architect": "correctness",   # deepseek-r1: CoT reasoning → careful validation
+        "developer": "readability",   # qwen2.5-coder: code gen → clean, typed code
+        "reviewer": "security",       # deepseek-coder: review → security-focused
+    }
+
     async def _one(self, task, index: int, total: int) -> Candidate:
         temps = self._override_temps or self.cfg.temperatures
         temp = temps[index % len(temps)]
         seed = self.cfg.base_seed + index
 
-        # Week 21: Role-specialized system prompts
-        # Roles inject specialized system prompts but do NOT override
-        # temperature — temperature diversity is managed by config/caller.
-        role = self._get_role(task, index, total)
+        # Week 29: Trinity model selection — each candidate can use a different model
+        model_override = None
+        trinity_role_name = None
+        if self.model_manager and self.model_manager.enabled:
+            model_override = self.model_manager.select_for_candidate(index, task)
+            trinity_role = self.model_manager.get_role_for_index(index)
+            trinity_role_name = trinity_role.value if trinity_role else None
+
+        # Week 21 + Week 29: Role-specialized system prompts
+        # When Trinity is active, override GeneratorRole based on Trinity role
+        # to ensure prompt matches model strength.
+        role = None
+        if trinity_role_name and trinity_role_name in self._TRINITY_ROLE_MAP:
+            gen_role_name = self._TRINITY_ROLE_MAP[trinity_role_name]
+            role = GENERATOR_ROLES.get(gen_role_name)
+            logger.debug(
+                "[MultiCandidate] #%d: Trinity %s → GeneratorRole %s (model=%s)",
+                index, trinity_role_name, gen_role_name, model_override,
+            )
+        else:
+            role = self._get_role(task, index, total)
 
         prompt = self._prompt(task)
         system = self._system_prompt(task)
@@ -198,11 +225,6 @@ class MultiCandidateGenerator:
                 f"self.llm is {type(self.llm).__name__} (not an LLMProtocol). "
                 f"Expected AsyncLLMAdapter or similar with .generate() method."
             )
-
-        # Week 29: Trinity model selection — each candidate can use a different model
-        model_override = None
-        if self.model_manager and self.model_manager.enabled:
-            model_override = self.model_manager.select_for_candidate(index, task)
 
         t0 = time.perf_counter()
 
@@ -289,6 +311,19 @@ class MultiCandidateGenerator:
         if oss_ctx:
             parts.append(f"\n\nOSS Best Practices (from top GitHub repos):\n{oss_ctx}")
 
+        # Week 29: PE-02 (Few-Shot Examples) — inject curated code snippets (+2.2 gain)
+        try:
+            from .few_shot_library import get_few_shot_examples
+            query = getattr(task, "query", "")
+            if query:
+                keywords = query.lower().split()
+                examples = get_few_shot_examples(keywords, max_examples=2)
+                if examples:
+                    parts.append(examples)
+                    logger.debug("[MultiCandidate] PE-02: %d few-shot chars injected", len(examples))
+        except (ImportError, Exception) as exc:
+            logger.debug("[MultiCandidate] few_shot_library not available: %s", exc)
+
         return "\n".join(parts)
 
     @staticmethod
@@ -306,12 +341,12 @@ class MultiCandidateGenerator:
             "Include type hints, docstrings, error handling, and comments inside the code."
         )
 
-        # Inject task-type-specific quality requirements (P0.1)
+        # Detect domain for quality requirements
+        detected = "python"
         try:
             from core.codegen.quality_prompts import detect_task_type, QUALITY_REQUIREMENTS
             query = getattr(task, "query", "")
             detected = detect_task_type(query) if query else "python"
-            # Override with explicit task_type if available
             if task_type:
                 type_map = {
                     "code_generation": "python",
@@ -327,6 +362,22 @@ class MultiCandidateGenerator:
         except (ImportError, Exception) as exc:
             logger.debug("[MultiCandidate] quality_prompts not available: %s", exc)
 
+        # Week 29: PE-04 (7 Deadly Sins) + PE-06 (Self-Check) + PE-03 (Error Warnings)
+        # Biggest quality gain: +3.1 (PE-04) + +2.7 (PE-06) + +1.8 (PE-03) = +7.6
+        try:
+            from .engineer_10x import build_10x_prompt
+            query = getattr(task, "query", "")
+            base = build_10x_prompt(
+                base_prompt=base,
+                task_type=detected,
+                include_sins=True,        # PE-04: 7 Deadly Sins (+3.1)
+                include_self_check=True,  # PE-06: 6-Point Self-Check (+2.7)
+                query=query,              # PE-03: Error Pattern Warnings (+1.8)
+            )
+            logger.debug("[MultiCandidate] PE-04/PE-06/PE-03 injected into system prompt")
+        except (ImportError, Exception) as exc:
+            logger.debug("[MultiCandidate] engineer_10x not available: %s", exc)
+
         oss_ctx = getattr(task, "oss_context", "")
         if oss_ctx:
             base += "\nUse patterns from popular open-source projects when applicable."
@@ -335,9 +386,18 @@ class MultiCandidateGenerator:
 
     @staticmethod
     def _extract_code(raw: str) -> str:
-        """Extract code from markdown fences if present."""
+        """Extract code from markdown fences if present.
+
+        Also strips <think>...</think> blocks from reasoning models
+        (e.g. deepseek-r1) that wrap their chain-of-thought output.
+        """
+        # Strip <think>...</think> blocks (deepseek-r1, QwQ, etc.)
+        cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        if not cleaned:
+            cleaned = raw.strip()  # fallback if entire output was in <think>
+
         # Match ```python ... ``` or ``` ... ```
-        m = re.search(r"```(?:python|py)?\s*\n(.*?)```", raw, re.DOTALL)
+        m = re.search(r"```(?:python|py)?\s*\n(.*?)```", cleaned, re.DOTALL)
         if m:
             return m.group(1).strip()
-        return raw.strip()
+        return cleaned

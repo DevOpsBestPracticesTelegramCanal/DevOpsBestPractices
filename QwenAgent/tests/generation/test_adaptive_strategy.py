@@ -544,37 +544,27 @@ class TestAgentAdaptiveIntegration:
         assert "adaptive_critical" in agent.stats
         assert "adaptive_time_saved_seconds" in agent.stats
 
-    def test_trivial_uses_one_candidate(self):
-        """Trivial query through agent should request 1 candidate."""
+    def test_trivial_skips_mc_pipeline(self):
+        """Trivial query should skip MC pipeline and fall through to LLM.
+
+        Week 27: _should_skip_multi_candidate() returns True for trivial tasks,
+        so the MC pipeline is skipped and the query goes to direct LLM.
+        """
         from core.qwencode_agent import QwenCodeAgent, QwenCodeConfig
 
         agent = QwenCodeAgent(QwenCodeConfig(model="qwen2.5-coder:7b"))
 
-        mock_result = MagicMock()
-        mock_result.code = "print('hello world')"
-        mock_result.score = 0.95
-        mock_result.all_passed = True
-        mock_result.best = MagicMock()
-        mock_result.best.validation_scores = []
-        mock_result.cross_review_result = None
-        mock_result.total_time = 20.0
-        mock_result.summary.return_value = {"candidates_generated": 1, "best_score": 0.95}
-
-        agent.multi_candidate_pipeline.run_sync = MagicMock(return_value=mock_result)
+        agent.multi_candidate_pipeline.run_sync = MagicMock()
 
         # "Write a function" triggers _is_code_generation_task, "hello world" triggers TRIVIAL
         events = list(agent.process_stream("Write a function for hello world"))
 
-        # Verify run_sync was called with n=1
-        call_kwargs = agent.multi_candidate_pipeline.run_sync.call_args
-        assert call_kwargs is not None, "pipeline.run_sync was not called"
-        kw = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
-        assert kw.get("n") == 1
+        # Verify run_sync was NOT called — trivial tasks skip MC pipeline
+        agent.multi_candidate_pipeline.run_sync.assert_not_called()
 
-        # Should have status event with "1 code variant" and "trivial"
+        # Should have a status event about skipping MC
         status_events = [e for e in events if e.get("event") == "status"]
         status_texts = " ".join(e.get("text", "") for e in status_events)
-        assert "1 code variant" in status_texts
-        assert "trivial" in status_texts
+        assert "skip" in status_texts.lower() or "Skipping" in status_texts
 
-        assert agent.stats["adaptive_trivial"] == 1
+        assert agent.stats["multi_candidate_skips"] >= 1

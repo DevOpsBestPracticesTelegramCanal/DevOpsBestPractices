@@ -30,7 +30,7 @@ class E2ELLM:
 
     model_name = "e2e-mock"
 
-    async def generate(self, prompt: str, system: str, temperature: float, seed: int) -> str:
+    async def generate(self, prompt: str, system: str, temperature: float, seed: int, model: str = None) -> str:
         await asyncio.sleep(0.005)
         if temperature < 0.3:
             return (
@@ -63,7 +63,7 @@ class AllBadLLM:
 
     model_name = "bad-mock"
 
-    async def generate(self, prompt, system, temperature, seed):
+    async def generate(self, prompt, system, temperature, seed, model=None):
         return "def broken(:\n    pass"
 
 

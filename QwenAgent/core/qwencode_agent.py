@@ -3,6 +3,7 @@ QwenCode Agent - Full Claude Code Clone
 All features of Claude Code, powered by Qwen LLM
 """
 
+import logging
 import os
 import re
 import json
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from .tools_extended import ExtendedTools, EXTENDED_TOOL_REGISTRY, execute_tool, get_tools_description
 from .router import PatternRouter, HybridRouter, RouteResult
@@ -337,6 +340,7 @@ Current working directory: {working_dir}
                         print(f"[TRINITY] Enabled ({trinity_manager.model_count} models, "
                               f"strategy={_trinity_strategy})")
 
+                self.trinity_manager = trinity_manager
                 self.multi_candidate_pipeline = MultiCandidatePipeline(
                     llm=adapter,
                     config=PipelineConfig(
@@ -1232,6 +1236,21 @@ Task: {user_input}"""
                 _is_codegen = False
 
         if _is_codegen:
+            # Week 29: Trinity override — ensure n_candidates >= 3 so all 3 models participate
+            _trinity_active = (
+                hasattr(self, 'trinity_manager')
+                and self.trinity_manager
+                and self.trinity_manager.enabled
+            )
+            if _trinity_active:
+                n_cands = max(n_cands, self.trinity_manager.model_count)
+                # Ensure enough temperatures for all candidates
+                if temperatures and len(temperatures) < n_cands:
+                    temperatures = tuple(
+                        temperatures[i % len(temperatures)] for i in range(n_cands)
+                    )
+                logger.info("[TRINITY] n_candidates overridden to %d (all models participate)", n_cands)
+
             # Week 27: Platform-aware candidate adaptation
             if adaptive_config and self.adaptive_strategy:
                 _pipeline_model = (
@@ -1246,8 +1265,10 @@ Task: {user_input}"""
                     model_name=_pipeline_model,
                     budget_seconds=_remaining_budget,
                 )
-                n_cands = adaptive_config.n_candidates
-                temperatures = adaptive_config.temperatures
+                # Only apply platform reduction when Trinity is NOT active
+                if not _trinity_active:
+                    n_cands = adaptive_config.n_candidates
+                    temperatures = adaptive_config.temperatures
 
             if adaptive_config:
                 temps_str = ", ".join(f"{t:.1f}" for t in temperatures)
@@ -1378,6 +1399,8 @@ Task: {user_input}"""
                 yield _pm_result
 
                 # Week 15: Self-Correction Loop — re-generate with error feedback
+                # Week 29: Limit iterations on CPU-constrained platforms
+                _sc_max_iters = 1 if _is_cpu_constrained else 3
                 correction_result = None
                 if (
                     HAS_SELF_CORRECTION
@@ -1389,12 +1412,12 @@ Task: {user_input}"""
                         # Phase 1: correction_start event
                         yield {
                             "event": "correction_start",
-                            "max_iterations": 3,
+                            "max_iterations": _sc_max_iters,
                             "initial_score": mc_result.score,
                         }
                         loop = SelfCorrectionLoop(
                             self.multi_candidate_pipeline,
-                            max_iterations=3,
+                            max_iterations=_sc_max_iters,
                         )
 
                         def _on_iter(iteration, attempt):
@@ -1456,6 +1479,16 @@ Task: {user_input}"""
 
                     except Exception as sc_err:
                         logger.warning("[SELF-CORRECTION] Error: %s", sc_err)
+                        # Week 29: Always yield correction_result so UI stage completes
+                        yield {
+                            "event": "correction_result",
+                            "initial_score": mc_result.score,
+                            "final_score": mc_result.score,
+                            "total_iterations": 0,
+                            "corrected": False,
+                            "all_passed": False,
+                            "error": str(sc_err),
+                        }
 
                 # Record outcome for adaptive learning
                 if adaptive_config and self.adaptive_strategy:
@@ -2743,18 +2776,52 @@ Use /mode fast|deep3|deep|search to switch"""}
         Uses regex for flexible matching:
           YES: "Write a Python function...", "Create a Dockerfile...", "Implement..."
           NO:  "Read file X", "Edit main.py", "Explain this code"
+
+        Week 29: When Trinity is enabled, treat ALL non-excluded queries as
+        code-gen to ensure multi-model pipeline is always used.
         """
         input_lower = user_input.lower()
 
-        # Step 1: Must match at least one code-gen pattern
-        if not any(p.search(input_lower) for p in self._CODEGEN_PATTERNS):
-            return False
-
-        # Step 2: Must NOT match file-edit exclusions (skip "dockerfile")
+        # Check exclusions first (shared by both paths)
         test_str = input_lower.replace("dockerfile", "dkrfl")
-        if any(p.search(test_str) for p in self._CODEGEN_EXCLUSIONS):
+        _excluded = any(p.search(test_str) for p in self._CODEGEN_EXCLUSIONS)
+
+        # Week 29: Trinity override — when multi-model is active, default to
+        # code-gen for ALL queries except file-edit/read exclusions.
+        # This ensures Russian/multilingual queries always go through MC pipeline.
+        _trinity_active = (
+            hasattr(self, 'trinity_manager')
+            and self.trinity_manager
+            and self.trinity_manager.enabled
+        )
+        if _trinity_active:
+            result = not _excluded
+            logger.debug(
+                "[CODEGEN-DETECT] Trinity override: input='%s...', excluded=%s → codegen=%s",
+                user_input[:60], _excluded, result,
+            )
+            return result
+
+        # Normal flow: must match at least one code-gen pattern
+        _matched = any(p.search(input_lower) for p in self._CODEGEN_PATTERNS)
+        if not _matched:
+            logger.debug(
+                "[CODEGEN-DETECT] No pattern match: input='%s...' → codegen=False",
+                user_input[:60],
+            )
             return False
 
+        if _excluded:
+            logger.debug(
+                "[CODEGEN-DETECT] Excluded: input='%s...' → codegen=False",
+                user_input[:60],
+            )
+            return False
+
+        logger.debug(
+            "[CODEGEN-DETECT] Matched: input='%s...' → codegen=True",
+            user_input[:60],
+        )
         return True
 
     def _should_skip_multi_candidate(
@@ -2770,7 +2837,16 @@ Use /mode fast|deep3|deep|search to switch"""}
         1. Simple/trivial tasks don't benefit from multiple candidates.
         2. Budget < 180s — not enough for even 1 candidate + validation.
         3. Windows CPU + large model — sequential generation too slow.
+
+        Week 29: When Trinity is enabled, NEVER skip — user explicitly wants
+        multi-model generation for all code-gen requests.
         """
+        # Rule 0: Trinity override — never skip when multi-model is active
+        if (hasattr(self, 'trinity_manager')
+                and self.trinity_manager
+                and self.trinity_manager.enabled):
+            return False, "trinity_enabled (forced MC pipeline)"
+
         # Rule 1: Simple tasks
         if complexity in ("TRIVIAL", "SIMPLE", "trivial", "simple"):
             return True, f"complexity={complexity} (single candidate sufficient)"

@@ -23,7 +23,7 @@ class MockLLM:
         self.fail_index = fail_index
         self.call_count = 0
 
-    async def generate(self, prompt: str, system: str, temperature: float, seed: int) -> str:
+    async def generate(self, prompt: str, system: str, temperature: float, seed: int, model: Optional[str] = None) -> str:
         self.call_count += 1
         if self.fail_index is not None and self.call_count == self.fail_index:
             raise RuntimeError("LLM mock failure")

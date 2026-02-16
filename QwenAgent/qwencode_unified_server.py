@@ -593,7 +593,7 @@ def chat():
     if not message:
         return jsonify({"error": "No message provided"}), 400
 
-    print(f"\n[CHAT] Input: {message[:100]}...")
+    print(f"\n[CHAT] Input: {message[:100].encode('ascii', 'replace').decode()}...")
 
     # 0. Query Modifier: handle commands and apply modifiers
     if HAS_QUERY_MODIFIER:
@@ -610,7 +610,7 @@ def chat():
 
         modified = query_modifier.process(message)
         if modified != message:
-            print(f"[MODIFIER] '{message[:40]}' -> '{modified[:60]}'")
+            print(f"[MODIFIER] '{message[:40].encode('ascii', 'replace').decode()}' -> '{modified[:60].encode('ascii', 'replace').decode()}'")
             message = modified
 
     # 1. Try Fast Path (PatternRouter)
@@ -712,7 +712,7 @@ def chat_stream():
         return jsonify({"error": "No message provided"}), 400
 
     print(f"\n{'='*60}")
-    print(f"[STREAM] Input: {message[:100]}...")
+    print(f"[STREAM] Input: {message[:100].encode('ascii', 'replace').decode()}...")
 
     # Query Modifier: handle commands before streaming
     if HAS_QUERY_MODIFIER:
@@ -729,7 +729,7 @@ def chat_stream():
 
         modified = query_modifier.process(message)
         if modified != message:
-            print(f"[MODIFIER] '{message[:40]}' -> '{modified[:60]}'")
+            print(f"[MODIFIER] '{message[:40].encode('ascii', 'replace').decode()}' -> '{modified[:60].encode('ascii', 'replace').decode()}'")
             message = modified
 
     def generate():

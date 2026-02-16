@@ -96,7 +96,7 @@ def empty_engine(empty_store):
 class FakeLLM:
     model_name = "fake-test-model"
 
-    async def generate(self, prompt, system, temperature, seed):
+    async def generate(self, prompt, system, temperature, seed, model=None):
         """Return valid Python that includes some OSS patterns."""
         if "OSS Best Practices" in prompt:
             # OSS context was injected — return code using those patterns

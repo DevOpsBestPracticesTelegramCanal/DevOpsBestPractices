@@ -117,7 +117,7 @@ class MockLLM:
     def __init__(self):
         self.call_count = 0
 
-    async def generate(self, prompt, system, temperature, seed):
+    async def generate(self, prompt, system, temperature, seed, model=None):
         self.call_count += 1
         await asyncio.sleep(0.01)
         return GOOD_CODE

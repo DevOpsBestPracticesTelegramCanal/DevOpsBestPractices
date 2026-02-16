@@ -28,7 +28,8 @@ class MockLLM:
         self.call_count = 0
 
     async def generate(
-        self, prompt: str, system: str, temperature: float, seed: int
+        self, prompt: str, system: str, temperature: float, seed: int,
+        model: str = None,
     ) -> str:
         self.call_count += 1
         await asyncio.sleep(0.01)
@@ -68,7 +69,7 @@ class BrokenLLM:
 
     model_name = "broken-3b"
 
-    async def generate(self, prompt, system, temperature, seed):
+    async def generate(self, prompt, system, temperature, seed, model=None):
         return "def broken(\n    # unclosed paren"
 
 
