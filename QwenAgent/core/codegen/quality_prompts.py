@@ -17,6 +17,7 @@ from enum import Enum
 
 class TaskType(Enum):
     PYTHON = "python"
+    DECORATOR = "decorator"
     KUBERNETES = "kubernetes"
     TERRAFORM = "terraform"
     GITHUB_ACTIONS = "github_actions"
@@ -73,6 +74,89 @@ QUALITY_REQUIREMENTS: Dict[str, str] = {
 6. **Thread Safety**: Если многопоточность
    - `threading.RLock()` вместо `Lock()` для reentrant
    - `with self._lock:` для context manager
+""",
+
+    "decorator": """
+## CRITICAL REQUIREMENTS FOR PYTHON DECORATORS:
+
+1. **Timeout Decorator — MUST actually interrupt execution**:
+   - MUST use `concurrent.futures.ThreadPoolExecutor(max_workers=1)` to enforce timeout
+   - MUST call `future.result(timeout=timeout_sec)` to wait with deadline
+   - MUST handle `concurrent.futures.TimeoutError` and cancel the future
+   - NEVER use bare try/except as timeout — it CANNOT interrupt a running function
+   - NEVER use `signal.alarm()` — not thread-safe and Windows-incompatible
+   ```python
+   # CORRECT timeout implementation:
+   def timeout(seconds):
+       def decorator(func):
+           @functools.wraps(func)
+           def wrapper(*args, **kwargs):
+               with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                   future = executor.submit(func, *args, **kwargs)
+                   try:
+                       return future.result(timeout=seconds)
+                   except concurrent.futures.TimeoutError:
+                       future.cancel()
+                       raise TimeoutError(f"{func.__name__} timed out after {seconds}s")
+           return wrapper
+       return decorator
+   ```
+
+2. **Retry Decorator — MUST raise on exhaustion**:
+   - MUST re-raise the last exception after all retries exhausted
+   - MUST include exponential backoff: `time.sleep(delay * (2 ** attempt))`
+   - MUST have a configurable max_retries parameter
+   - NEVER silently return None after retry exhaustion
+   ```python
+   # After retry loop:
+   raise last_exception  # NOT: return None
+   ```
+
+3. **Cache Decorator — MUST be thread-safe**:
+   - Use `functools.lru_cache` or `functools.cache` for simple cases
+   - If using custom dict cache: MUST protect with `threading.Lock()`
+   - NEVER use bare global dict as cache without synchronization
+   ```python
+   # CORRECT thread-safe custom cache:
+   _cache = {}
+   _cache_lock = threading.Lock()
+
+   def cached(func):
+       @functools.wraps(func)
+       def wrapper(*args):
+           with _cache_lock:
+               if args not in _cache:
+                   _cache[args] = func(*args)
+               return _cache[args]
+       return wrapper
+   ```
+
+4. **Decorator Composition Order**:
+   - @cache MUST be BELOW @retry (applied first = innermost)
+   - @retry MUST be BELOW @timeout (timeout wraps retry)
+   - Wrong order: @cache above @retry caches failed exceptions
+   ```python
+   # CORRECT order (read bottom-up for application order):
+   @timeout(30)      # outermost: enforces total time limit
+   @retry(max=3)     # middle: retries on failure
+   @cache             # innermost: caches successful results
+   def my_function(): ...
+   ```
+
+5. **@functools.wraps is MANDATORY**:
+   - Every wrapper function MUST have `@functools.wraps(func)`
+   - Without it: __name__, __doc__, __module__ are lost
+   ```python
+   def my_decorator(func):
+       @functools.wraps(func)  # MANDATORY
+       def wrapper(*args, **kwargs):
+           return func(*args, **kwargs)
+       return wrapper
+   ```
+
+6. **Type Hints and Docstrings**: Same as Python requirements
+   - Type hints on all parameters and return values
+   - Google-style docstrings with Args, Returns, Raises
 """,
 
     "kubernetes": """
@@ -438,7 +522,12 @@ def detect_task_type(query: str) -> str:
         Тип задачи (python, kubernetes, terraform, etc.)
     """
     query_lower = query.lower()
-    
+
+    # Decorator (must be before generic Python)
+    if any(kw in query_lower for kw in ['decorator', 'wrapper', 'retry', 'timeout', 'cache decorator',
+                                         'rate limit', 'memoize', 'logging decorator']):
+        return 'decorator'
+
     # Kubernetes
     if any(kw in query_lower for kw in ['kubernetes', 'k8s', 'deployment', 'pod', 'service', 'ingress']):
         return 'kubernetes'

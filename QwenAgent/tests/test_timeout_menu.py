@@ -100,7 +100,7 @@ class TestFromPartialDict:
     def test_from_partial_dict_no_base(self):
         prefs = UserTimeoutPreferences.from_partial_dict({"priority": "speed"})
         assert prefs.priority == "speed"
-        assert prefs.max_wait == 120.0  # default
+        assert prefs.max_wait == 600.0  # default (CPU-friendly, Week 26)
 
     def test_from_partial_dict_with_base(self):
         base = UserTimeoutPreferences(priority="quality", max_wait=300)
@@ -111,7 +111,7 @@ class TestFromPartialDict:
     def test_from_partial_dict_empty_dict(self):
         prefs = UserTimeoutPreferences.from_partial_dict({})
         assert prefs.priority == "balanced"
-        assert prefs.max_wait == 120.0
+        assert prefs.max_wait == 600.0  # default (CPU-friendly, Week 26)
 
     def test_from_partial_dict_preserves_base_unchanged(self):
         base = UserTimeoutPreferences(priority="speed", max_wait=60)
@@ -133,25 +133,25 @@ class TestRecomputation:
                cfg_after.absolute_max != cfg_before.absolute_max
 
     def test_speed_config_values(self):
-        prefs = UserTimeoutPreferences(priority="speed", max_wait=120)
+        prefs = UserTimeoutPreferences(priority="speed", max_wait=600)
         cfg = prefs.to_timeout_config()
-        assert cfg.ttft_timeout == 10
-        assert cfg.idle_timeout == 8
-        assert cfg.absolute_max == 60  # min(120, 60)
+        assert cfg.ttft_timeout == 60
+        assert cfg.idle_timeout == 30
+        assert cfg.absolute_max == 180  # min(600, 180)
 
     def test_quality_config_values(self):
         prefs = UserTimeoutPreferences(priority="quality", max_wait=1000)
         cfg = prefs.to_timeout_config()
-        assert cfg.ttft_timeout == 45
-        assert cfg.idle_timeout == 30
+        assert cfg.ttft_timeout == 180
+        assert cfg.idle_timeout == 60
         assert cfg.absolute_max == 600  # min(1000, 600)
 
     def test_balanced_config_values(self):
         prefs = UserTimeoutPreferences(priority="balanced", max_wait=200)
         cfg = prefs.to_timeout_config()
-        assert cfg.ttft_timeout == 45
-        assert cfg.idle_timeout == 25
-        assert cfg.absolute_max == 200  # min(200, 300)
+        assert cfg.ttft_timeout == 120
+        assert cfg.idle_timeout == 60
+        assert cfg.absolute_max == 200  # min(200, 600)
 
     def test_max_wait_caps_absolute_max(self):
         prefs = UserTimeoutPreferences(priority="balanced", max_wait=50)
@@ -173,11 +173,11 @@ class TestToDict:
         assert "computed_timeout_config" in d
 
     def test_to_dict_computed_matches(self):
-        prefs = UserTimeoutPreferences(priority="speed", max_wait=60)
+        prefs = UserTimeoutPreferences(priority="speed", max_wait=180)
         d = prefs.to_dict()
-        assert d["computed_timeout_config"]["ttft_timeout"] == 10
-        assert d["computed_timeout_config"]["idle_timeout"] == 8
-        assert d["computed_timeout_config"]["absolute_max"] == 60
+        assert d["computed_timeout_config"]["ttft_timeout"] == 60
+        assert d["computed_timeout_config"]["idle_timeout"] == 30
+        assert d["computed_timeout_config"]["absolute_max"] == 180  # min(180, 180)
 
     def test_to_dict_after_update(self):
         prefs = UserTimeoutPreferences()

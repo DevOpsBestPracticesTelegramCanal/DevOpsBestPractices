@@ -19,9 +19,10 @@ Key classes:
 import os
 import re
 import sqlite3
+import time
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class ResearchConfig:
     news_db_path: str = ""
     releases_db_path: str = ""
     search_backend: str = "auto"  # "searxng" | "duckduckgo" | "auto"
+    analysis_max_chars: int = 3000  # max chars for LLM-analyzed search output
 
     def __post_init__(self):
         if not self.news_db_path:
@@ -533,27 +535,38 @@ class ContextFormatter:
         web_results: list,
         local_results: List[LocalResult],
         max_chars: int = 4000,
+        analyzed_web_context: Optional[str] = None,
     ) -> str:
-        """Build structured context string for pipeline injection."""
+        """Build structured context string for pipeline injection.
+
+        If *analyzed_web_context* is provided (from SearchAnalyzer), it replaces
+        the raw web-snippets section with a structured LLM-synthesized analysis.
+        Local results and code snippets are still appended.
+        """
         parts: List[str] = []
         parts.append(f"## Research Context for: {query[:100]}")
         remaining = max_chars - len(parts[0]) - 50
 
-        # Check if results carry sub_query tags (aspect decomposition)
-        has_tags = any(
-            getattr(r, "sub_query", "")
-            for r in web_results
-            if not isinstance(r, dict)
-        )
+        if analyzed_web_context:
+            # Use LLM-analyzed context instead of raw web snippets
+            parts.append(analyzed_web_context)
+            remaining -= len(analyzed_web_context)
+        else:
+            # Check if results carry sub_query tags (aspect decomposition)
+            has_tags = any(
+                getattr(r, "sub_query", "")
+                for r in web_results
+                if not isinstance(r, dict)
+            )
 
-        # Web sources section — grouped by aspect if tags present
-        if web_results:
-            if has_tags:
-                web_section = self._format_web_grouped(web_results, remaining // 2)
-            else:
-                web_section = self._format_web_flat(web_results, remaining // 2)
-            parts.append(web_section)
-            remaining -= len(web_section)
+            # Web sources section — grouped by aspect if tags present
+            if web_results:
+                if has_tags:
+                    web_section = self._format_web_grouped(web_results, remaining // 2)
+                else:
+                    web_section = self._format_web_flat(web_results, remaining // 2)
+                parts.append(web_section)
+                remaining -= len(web_section)
 
         # Local knowledge section
         if local_results:
@@ -694,3 +707,146 @@ class ContextFormatter:
         if isinstance(obj, dict):
             return obj.get(name, default)
         return getattr(obj, name, default)
+
+
+# ---------------------------------------------------------------------------
+# Search Analyzer (LLM synthesis of raw search results)
+# ---------------------------------------------------------------------------
+
+class SearchAnalyzer:
+    """LLM-based analysis of raw search results before code generation.
+
+    Takes raw web + local search results and produces a structured technical
+    guidance document that the code generator can use directly.  Falls back
+    gracefully: if *analyze_fn* is ``None`` or the LLM call fails, returns
+    ``None`` so the pipeline uses raw snippets instead.
+    """
+
+    _SYSTEM_PROMPT = (
+        "You are a senior software engineer. Analyze the search results below "
+        "and produce a CONCISE technical guidance document. "
+        "Be SPECIFIC: name libraries, functions, patterns, exact parameter names. "
+        "Be CONCISE: no filler, no introductions, no conclusions. "
+        "Output ONLY the structured analysis in the requested format."
+    )
+
+    _USER_TEMPLATE = """\
+TASK: {query}
+
+RAW SEARCH RESULTS:
+{raw_results}
+
+OUTPUT FORMAT (follow exactly):
+## Technical Guidance
+{aspect_sections}
+### Synthesis
+- Recommended execution/composition order
+- functools.wraps / signature preservation notes
+- sync vs async considerations (if applicable)
+"""
+
+    _ASPECT_SECTION_TEMPLATE = """\
+### {aspect}
+- Best approach: <library/pattern with specific function names>
+- Key pattern: <code pattern or algorithm in 1-2 lines>
+- Pitfalls: <common mistakes to avoid>
+"""
+
+    def __init__(self, analyze_fn: Optional[Callable] = None):
+        self.analyze_fn = analyze_fn
+
+    def analyze(
+        self,
+        query: str,
+        web_results: list,
+        local_results: list,
+        max_chars: int = 3000,
+    ) -> Optional[str]:
+        """Synthesize raw search results into structured technical guidance.
+
+        Returns:
+            Structured analysis string, or ``None`` on any failure.
+        """
+        if not self.analyze_fn:
+            return None
+
+        if not web_results and not local_results:
+            return None
+
+        try:
+            raw_text = self._format_raw_results(web_results, local_results)
+            if not raw_text:
+                return None
+
+            aspects = self._detect_aspects(web_results)
+            aspect_sections = "\n".join(
+                self._ASPECT_SECTION_TEMPLATE.format(aspect=a) for a in aspects
+            ) if aspects else "### General\n- Best approach:\n- Key pattern:\n- Pitfalls:"
+
+            user_prompt = self._USER_TEMPLATE.format(
+                query=query[:200],
+                raw_results=raw_text[:6000],
+                aspect_sections=aspect_sections,
+            )
+
+            start = time.time()
+            result = self.analyze_fn(user_prompt, self._SYSTEM_PROMPT)
+            elapsed = time.time() - start
+
+            if not result or len(result.strip()) < 50:
+                logger.warning("SearchAnalyzer: analysis too short (%d chars), falling back",
+                               len(result) if result else 0)
+                return None
+
+            # Truncate if too long
+            if len(result) > max_chars:
+                result = result[:max_chars - 3] + "..."
+
+            logger.info("SearchAnalyzer: analysis completed in %.1fs, %d chars",
+                        elapsed, len(result))
+            return result
+
+        except Exception as exc:
+            logger.warning("SearchAnalyzer: analysis failed: %s", exc)
+            return None
+
+    # ---- Helpers ----
+
+    @staticmethod
+    def _format_raw_results(web_results: list, local_results: list) -> str:
+        """Format raw results as plain text for the analysis prompt."""
+        parts: List[str] = []
+
+        for i, r in enumerate(web_results, 1):
+            title = getattr(r, "title", "") if not isinstance(r, dict) else r.get("title", "")
+            url = getattr(r, "url", "") if not isinstance(r, dict) else r.get("url", "")
+            snippet = getattr(r, "snippet", "") if not isinstance(r, dict) else r.get("snippet", "")
+            sub_q = getattr(r, "sub_query", "") if not isinstance(r, dict) else r.get("sub_query", "")
+            tag = f" [{sub_q[:50]}]" if sub_q else ""
+            parts.append(f"WEB {i}{tag}: {title[:100]} ({url})\n  {snippet[:300]}")
+
+        for i, r in enumerate(local_results, 1):
+            parts.append(f"LOCAL {i} [{r.table}]: {r.title[:100]}\n  {r.summary[:200]}")
+
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _detect_aspects(web_results: list) -> List[str]:
+        """Extract unique aspect labels from sub_query tags on web results."""
+        # Reuse ContextFormatter's aspect label logic
+        aspect_keywords = [
+            "caching", "retry", "timeout", "logging", "auth",
+            "rate limiting", "validation", "middleware", "async",
+            "thread safety", "security", "circuit breaker",
+            "observability", "database", "pooling", "queue",
+        ]
+        seen: Dict[str, bool] = {}
+        for r in web_results:
+            sub_q = getattr(r, "sub_query", "") if not isinstance(r, dict) else r.get("sub_query", "")
+            if not sub_q:
+                continue
+            sq_lower = sub_q.lower()
+            for kw in aspect_keywords:
+                if kw in sq_lower and kw not in seen:
+                    seen[kw] = True
+        return [kw.replace("_", " ").title() for kw in seen]

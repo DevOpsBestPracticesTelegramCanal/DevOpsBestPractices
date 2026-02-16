@@ -655,7 +655,12 @@ class MultiCandidatePipeline:
             gen_timeout = 120.0  # default fallback
             if self.config.generation_config:
                 gen_timeout = self.config.generation_config.total_timeout
-            sync_timeout = gen_timeout + 60  # headroom for validation + scoring
+            # Week 28: Account for escalation tiers — each tier may use full timeout
+            if use_escalation:
+                n_tiers = len(QualityLevel._ORDER)
+                sync_timeout = gen_timeout * n_tiers + 60
+            else:
+                sync_timeout = gen_timeout + 60  # headroom for validation + scoring
             t.join(timeout=sync_timeout)
 
             if t.is_alive():

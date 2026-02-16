@@ -188,6 +188,13 @@ class MultiCandidateGenerator:
         if role:
             system = build_role_system_prompt(role, system)
 
+        # Week 27: Validate LLM adapter before calling
+        if not hasattr(self.llm, 'generate'):
+            raise TypeError(
+                f"self.llm is {type(self.llm).__name__} (not an LLMProtocol). "
+                f"Expected AsyncLLMAdapter or similar with .generate() method."
+            )
+
         t0 = time.perf_counter()
 
         code = await asyncio.wait_for(

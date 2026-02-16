@@ -19,7 +19,9 @@ Usage:
 import hashlib
 import json
 import logging
+import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -215,6 +217,70 @@ class AdaptiveStrategy:
             reasoning=reasoning,
             confidence=self._confidence(complexity, query),
             estimated_time_seconds=n_candidates * _TIME_PER_CANDIDATE,
+        )
+
+    def adapt_for_platform(
+        self,
+        config: AdaptiveConfig,
+        model_name: str = "",
+        budget_seconds: float = 600.0,
+    ) -> AdaptiveConfig:
+        """Adjust n_candidates and temperatures based on platform constraints.
+
+        On constrained platforms (Windows CPU with 7B model, low CPU count,
+        or tight budget), reduces candidate count to avoid timeouts.
+
+        Args:
+            config: Original strategy from get_strategy().
+            model_name: Model name string (e.g. "qwen2.5-coder:7b").
+            budget_seconds: Remaining time budget in seconds.
+
+        Returns:
+            Adjusted AdaptiveConfig (may be same object if no changes needed).
+        """
+        n = config.n_candidates
+        temps = config.temperatures
+        reasons = []
+
+        # Rule 1: Windows CPU + 7B model → max 1 candidate
+        is_large_model = any(tag in model_name.lower() for tag in ("7b", "13b", "14b", "32b", "70b", "72b"))
+        is_constrained_platform = sys.platform == "win32" and is_large_model
+        if is_constrained_platform and n > 1:
+            n = 1
+            temps = (temps[len(temps) // 2],)  # Pick middle temperature
+            reasons.append(f"Windows CPU + {model_name} → 1 candidate")
+
+        # Rule 2: Few CPU cores → max 1 candidate
+        cpu_count = os.cpu_count() or 4
+        if cpu_count < 8 and n > 1:
+            n = 1
+            temps = (temps[len(temps) // 2],)
+            reasons.append(f"CPU cores={cpu_count} < 8 → 1 candidate")
+
+        # Rule 3: Tight budget → cap candidates
+        # Need at least 120s per candidate for generation + validation
+        import math
+        if math.isinf(budget_seconds) or budget_seconds > 100_000:
+            max_by_budget = n  # unlimited budget → no cap
+        else:
+            max_by_budget = max(1, int(budget_seconds / 120))
+        if n > max_by_budget:
+            n = max_by_budget
+            temps = temps[:n]
+            reasons.append(f"budget={budget_seconds:.0f}s → max {n} candidate(s)")
+
+        if not reasons:
+            return config
+
+        reasoning = config.reasoning + " | Platform: " + "; ".join(reasons)
+        logger.info("[AdaptiveStrategy] platform adaptation: %s", reasoning)
+        return AdaptiveConfig(
+            n_candidates=n,
+            temperatures=temps,
+            complexity=config.complexity,
+            reasoning=reasoning,
+            confidence=config.confidence,
+            estimated_time_seconds=n * _TIME_PER_CANDIDATE,
         )
 
     def record_outcome(

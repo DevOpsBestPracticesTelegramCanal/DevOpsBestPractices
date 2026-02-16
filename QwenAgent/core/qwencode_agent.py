@@ -6,6 +6,7 @@ All features of Claude Code, powered by Qwen LLM
 import os
 import re
 import json
+import sys
 import time
 import requests
 from pathlib import Path
@@ -335,7 +336,11 @@ Current working directory: {working_dir}
                         cross_reviewer=cross_reviewer,
                     ),
                 )
-                print(f"[MULTI-CANDIDATE] Initialized (model={_pipeline_model}, n=2)")
+                # Week 27: Verify LLM adapter type at init time
+                _llm_obj = self.multi_candidate_pipeline.generator.llm
+                print(f"[MULTI-CANDIDATE] Initialized (model={_pipeline_model}, n=2, "
+                      f"llm_type={type(_llm_obj).__name__}, "
+                      f"has_generate={hasattr(_llm_obj, 'generate')})")
                 # Week 4: Adaptive Temperature Strategy
                 try:
                     history_dir = Path(self.config.working_dir) / ".qwencode"
@@ -349,6 +354,20 @@ Current working directory: {working_dir}
                     self.adaptive_strategy = None
             except Exception as _mc_init_err:
                 print(f"[MULTI-CANDIDATE] Init failed: {_mc_init_err}")
+
+        # HVE Pipeline — post-generation quality gate
+        self.hve_pipeline = None
+        if HAS_MULTI_CANDIDATE:
+            try:
+                from hve_pipeline import create_hve_pipeline
+                self.hve_pipeline = create_hve_pipeline(
+                    llm_client=None,   # validation-only, no LLM needed
+                    engine_type="default",
+                    max_iterations=1,
+                )
+                print("[HVE] Quality gate initialized")
+            except Exception as _hve_err:
+                print(f"[HVE] Could not initialize: {_hve_err}")
 
         # Week 8: OSS Consciousness Tool (for pipeline context enrichment)
         self.oss_tool = None
@@ -418,6 +437,7 @@ Current working directory: {working_dir}
                 _rc = _RC(search_backend=self.config.search_backend)
                 self.research_agent = ResearchAgent(
                     web_search_fn=self.web_search,
+                    analyze_fn=self._call_llm_research_analysis,
                     config=_rc,
                 )
                 print(f"[RESEARCH] Agent initialized (local DBs: {os.path.isfile(_rc.news_db_path)}/{os.path.isfile(_rc.releases_db_path)})")
@@ -464,6 +484,8 @@ Current working directory: {working_dir}
             # Week 3: Multi-Candidate tracking
             "multi_candidate_runs": 0,
             "multi_candidate_fallbacks": 0,
+            "multi_candidate_skips": 0,          # Week 27: MC skipped (budget/platform)
+            "multi_candidate_budget_fallbacks": 0,  # Week 27: Graceful fallback after MC timeout
             # Week 3.1: Cross-Architecture Review tracking
             "cross_reviews": 0,
             "cross_review_criticals": 0,
@@ -516,7 +538,17 @@ Current working directory: {working_dir}
             "research_local_hits": 0,
             "research_deep3": 0,
             "research_deep6": 0,
+            "research_analyses": 0,
+            "research_analysis_fallbacks": 0,
+            # HVE Quality Gate tracking
+            "hve_validations": 0,
+            "hve_rejections": 0,
+            "hve_fallbacks": 0,
+            "hve_by_test_id": {},
         }
+
+        # HVE retry counter (reset per request)
+        self._hve_retry_count = 0
 
         # Mode tracking
         self.current_mode = self.config.execution_mode
@@ -1072,6 +1104,10 @@ Task: {user_input}"""
                 else:
                     self.stats["research_deep3"] += 1
                     self.search_deep_analysis_mode = ExecutionMode.DEEP3
+                if _research_result.analysis_used:
+                    self.stats["research_analyses"] += 1
+                else:
+                    self.stats["research_analysis_fallbacks"] += 1
 
                 yield {"event": "research_progress", "data": {
                     "status": "complete",
@@ -1080,8 +1116,9 @@ Task: {user_input}"""
                     "time": round(_research_result.total_time, 2),
                     "web_count": len(_research_result.web_results),
                     "local_count": len(_research_result.local_results),
+                    "analysis_used": _research_result.analysis_used,
                 }}
-                yield {"event": "status", "text": f"Research: {_research_result.sources_count} sources found, mode={_research_result.deep_mode} ({_research_result.total_time:.1f}s)"}
+                yield {"event": "status", "text": f"Research: {_research_result.sources_count} sources found, analysis={'yes' if _research_result.analysis_used else 'no'}, mode={_research_result.deep_mode} ({_research_result.total_time:.1f}s)"}
             except Exception as _ra_err:
                 yield {"event": "status", "text": f"Research skipped: {_ra_err}"}
 
@@ -1135,6 +1172,7 @@ Task: {user_input}"""
                 yield {"event": "status", "text": "🌐 Search returned no results, generating code..."}
 
         # STEP 1.9: Multi-Candidate Generation (for pure code-gen tasks)
+        _mc_start_time = time.time()
         if _is_codegen:
             swecas_code = None
             if swecas_result.get("confidence", 0) >= 0.5:
@@ -1154,40 +1192,113 @@ Task: {user_input}"""
                 complexity_key = f"adaptive_{adaptive_config.complexity.value}"
                 if complexity_key in self.stats:
                     self.stats[complexity_key] += 1
+
+            # Week 27: Adaptive budget — check if MC should be skipped
+            _complexity_str = adaptive_config.complexity.value if adaptive_config else "moderate"
+            _remaining_budget = self.cot_engine.get_remaining_budget()
+            _skip_mc, _skip_reason = self._should_skip_multi_candidate(
+                _complexity_str, _remaining_budget,
+            )
+            if _skip_mc:
+                self.stats["multi_candidate_skips"] += 1
+                yield {"event": "status", "text": f"Skipping MC pipeline ({_skip_reason}), using direct LLM..."}
+                # Fall through to STEP 2 (LLM processing)
+                _is_codegen = False
+
+        if _is_codegen:
+            # Week 27: Platform-aware candidate adaptation
+            if adaptive_config and self.adaptive_strategy:
+                _pipeline_model = (
+                    getattr(self.config, 'pipeline_model', '')
+                    or getattr(getattr(self.config, 'models', None), 'heavy_model', '')
+                    or getattr(self.config, 'heavy_model', '')
+                    or getattr(self.config, 'model', '')
+                    or ''
+                )
+                adaptive_config = self.adaptive_strategy.adapt_for_platform(
+                    adaptive_config,
+                    model_name=_pipeline_model,
+                    budget_seconds=_remaining_budget,
+                )
+                n_cands = adaptive_config.n_candidates
+                temperatures = adaptive_config.temperatures
+
+            if adaptive_config:
                 temps_str = ", ".join(f"{t:.1f}" for t in temperatures)
                 yield {"event": "status", "text": f"Generating {n_cands} code variant{'s' if n_cands > 1 else ''} (complexity: {adaptive_config.complexity.value}, temp: {temps_str})..."}
             else:
                 yield {"event": "status", "text": f"Generating {n_cands} code variants..."}
 
+            # Week 27: Adaptive MC timeout — respect user budget
+            _mc_timeout = self._compute_mc_timeout(_remaining_budget)
+
+            # Temporarily adjust generation config timeout for this run
+            _orig_total_timeout = None
+            _orig_per_cand_timeout = None
+            if self.multi_candidate_pipeline.config.generation_config:
+                _gc = self.multi_candidate_pipeline.config.generation_config
+                _orig_total_timeout = _gc.total_timeout
+                _orig_per_cand_timeout = _gc.per_candidate_timeout
+                _gc.total_timeout = _mc_timeout
+                # Give each candidate the full budget share (don't cap at original 30s)
+                _gc.per_candidate_timeout = _mc_timeout / max(n_cands, 1)
+
+            _pipeline_kwargs = dict(
+                task_id=f"agent_{self.stats['total_requests']}",
+                query=user_input,
+                swecas_code=swecas_code,
+                n=n_cands,
+                temperatures=temperatures,
+                oss_context=oss_context,
+                task_type=task_context.task_type if task_context else None,
+                task_risk=task_context.risk_level if task_context else None,
+                validation_profile=task_context.validation_profile if task_context else None,
+            )
+            # Phase 1: pipeline_start event
+            _gen_model = getattr(self.multi_candidate_pipeline, '_adapter_model', None)
+            if not _gen_model:
+                try:
+                    _gen_model = self.multi_candidate_pipeline.generator.llm.model_name
+                except Exception:
+                    _gen_model = self.config.pipeline_model or self.config.model
+            yield {
+                "event": "pipeline_start",
+                "n_candidates": n_cands,
+                "complexity": adaptive_config.complexity.value if adaptive_config else "unknown",
+                "temperatures": temperatures or [],
+                "validation_profile": task_context.validation_profile.value if task_context else "balanced",
+                "model": _gen_model,
+                "mc_timeout": _mc_timeout,
+                "budget_remaining": _remaining_budget,
+            }
+
+            # Week 28: Skip quality escalation on CPU-constrained platforms.
+            # Escalation overrides n_candidates (STANDARD=3, DEEP=5) which is
+            # too slow for sequential CPU generation.  Use _force_no_escalation
+            # flag so PipelineConfig.quality_escalation stays True for tests.
+            _pipeline_model_name = (
+                getattr(self.config, 'pipeline_model', '')
+                or getattr(self.config, 'model', '') or ''
+            )
+            _is_cpu_constrained = (
+                sys.platform == "win32"
+                and any(t in _pipeline_model_name.lower()
+                        for t in ("7b", "13b", "14b", "32b", "70b", "72b"))
+            )
+            if _is_cpu_constrained:
+                _pipeline_kwargs["_force_no_escalation"] = True
+
             try:
-                _pipeline_kwargs = dict(
-                    task_id=f"agent_{self.stats['total_requests']}",
-                    query=user_input,
-                    swecas_code=swecas_code,
-                    n=n_cands,
-                    temperatures=temperatures,
-                    oss_context=oss_context,
-                    task_type=task_context.task_type if task_context else None,
-                    task_risk=task_context.risk_level if task_context else None,
-                    validation_profile=task_context.validation_profile if task_context else None,
-                )
-                # Phase 1: pipeline_start event
-                _gen_model = getattr(self.multi_candidate_pipeline, '_adapter_model', None)
-                if not _gen_model:
-                    try:
-                        _gen_model = self.multi_candidate_pipeline.generator.llm.model_name
-                    except Exception:
-                        _gen_model = self.config.pipeline_model or self.config.model
-                yield {
-                    "event": "pipeline_start",
-                    "n_candidates": n_cands,
-                    "complexity": adaptive_config.complexity.value if adaptive_config else "unknown",
-                    "temperatures": temperatures or [],
-                    "validation_profile": task_context.validation_profile.value if task_context else "balanced",
-                    "model": _gen_model,
-                }
                 mc_result = self.multi_candidate_pipeline.run_sync(**_pipeline_kwargs)
                 self.stats["multi_candidate_runs"] += 1
+            finally:
+                # Always restore original timeouts
+                if _orig_total_timeout is not None:
+                    _gc = self.multi_candidate_pipeline.config.generation_config
+                    _gc.total_timeout = _orig_total_timeout
+                    _gc.per_candidate_timeout = _orig_per_cand_timeout
+
+            try:
 
                 # Phase 1+2: pipeline_candidate events (one per candidate, with validation details)
                 if mc_result.pool and mc_result.pool.candidates:
@@ -1368,8 +1479,63 @@ Task: {user_input}"""
                     except Exception:
                         pass  # Graceful degradation
 
-                # Build response
-                response_parts = [mc_result.code]
+                # === HVE Quality Gate (Policy Engine) ===
+                hve_result = None
+                self._hve_retry_count = 0
+                _mc_code = mc_result.code
+                if self.hve_pipeline and _mc_code:
+                    yield {"event": "status", "text": "Running HVE quality validation (4 layers)..."}
+                    hve_result = self._validate_with_hve(_mc_code)
+                    yield {
+                        "event": "hve_validation",
+                        "data": {
+                            "status": hve_result["status"],
+                            "grade": hve_result["grade"],
+                            "score": hve_result["score"],
+                            "issues": hve_result["issues"],
+                            "test_id": hve_result["test_id"],
+                        },
+                    }
+
+                    # POLICY: Block rejected code (score < 5.0)
+                    if not hve_result["passed"]:
+                        yield {"event": "status", "text": f"HVE REJECTED (score: {hve_result['score']:.1f}/10)"}
+                        # Attempt regeneration if budget permits
+                        _remaining = self.time_budget.remaining if hasattr(self, 'time_budget') else 120
+                        if _remaining > 60 and self._hve_retry_count < 1:
+                            self._hve_retry_count += 1
+                            yield {"event": "status", "text": "Regeneration with temperature 0.3..."}
+                            try:
+                                _regen_resp = self._call_llm(
+                                    prompt=user_input, temperature=0.3,
+                                    max_tokens=4096, timeout=min(_remaining * 0.8, 120),
+                                )
+                                _regen_blocks = re.findall(r'```(?:python)?\s*\n(.*?)```', _regen_resp, re.DOTALL)
+                                _regen_clean = "\n\n".join(_regen_blocks) if _regen_blocks else _regen_resp
+                                if _regen_clean.strip():
+                                    hve_result = self._validate_with_hve(_regen_clean)
+                                    if hve_result["passed"]:
+                                        _mc_code = _regen_clean
+                                        yield {"event": "hve_validation", "data": {
+                                            "status": hve_result["status"], "grade": hve_result["grade"],
+                                            "score": hve_result["score"], "issues": hve_result["issues"],
+                                            "test_id": hve_result["test_id"],
+                                        }}
+                            except Exception as _regen_err:
+                                yield {"event": "status", "text": f"Regeneration failed: {_regen_err}"}
+
+                        # Still rejected after regen? Block and return error
+                        if not hve_result["passed"]:
+                            yield {
+                                "event": "error",
+                                "error": "Generated code failed quality checks",
+                                "hve": {"score": hve_result["score"], "passed": False, "issues": hve_result["issues"]},
+                            }
+                            yield {"event": "done"}
+                            return
+
+                # Build response (use _mc_code which may be regenerated)
+                response_parts = [_mc_code]
                 summary = mc_result.summary()
 
                 # Show validation warnings if any
@@ -1409,6 +1575,13 @@ Task: {user_input}"""
                             )
                         )
 
+                # HVE quality badge (rejected code never reaches here — blocked above)
+                if hve_result and hve_result["passed"]:
+                    _qb = "GOOD" if hve_result["score"] >= 7.0 else "ACCEPTABLE"
+                    response_parts.append(
+                        "\n\nHVE Quality: {} (score: {:.1f}/10)".format(_qb, hve_result["score"])
+                    )
+
                 score_str = f"{mc_result.score:.2f}" if mc_result.score else "N/A"
                 yield {"event": "status", "text": f"Best variant selected (score: {score_str}, candidates: {summary.get('candidates_generated', 3)})"}
                 yield {
@@ -1442,7 +1615,6 @@ Task: {user_input}"""
                 _tb = traceback.format_exc()
                 print(f"[MULTI-CANDIDATE ERROR] {type(mc_err).__name__}: {mc_err}", flush=True)
                 print(_tb, flush=True)
-                # Also write to file for debugging
                 try:
                     import tempfile
                     _err_path = os.path.join(tempfile.gettempdir(), "mc_error.log")
@@ -1451,7 +1623,16 @@ Task: {user_input}"""
                     print(f"[MC-ERROR] Written to {_err_path}", flush=True)
                 except Exception:
                     pass
-                yield {"event": "status", "text": f"Multi-Candidate failed ({type(mc_err).__name__}), falling back to LLM..."}
+
+                # Week 27: Graceful fallback — check remaining budget
+                _mc_elapsed = time.time() - _mc_start_time
+                _fallback_budget = max(0, _remaining_budget - _mc_elapsed)
+                _is_timeout = "timeout" in type(mc_err).__name__.lower()
+                if _fallback_budget > 30 and _is_timeout:
+                    self.stats["multi_candidate_budget_fallbacks"] += 1
+                    yield {"event": "status", "text": f"MC timeout → budget fallback ({_fallback_budget:.0f}s remaining)..."}
+                else:
+                    yield {"event": "status", "text": f"Multi-Candidate failed ({type(mc_err).__name__}), falling back to LLM..."}
 
         # STEP 2: LLM processing
         yield {"event": "status", "text": "Thinking..."}
@@ -1613,15 +1794,47 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
                     if thinking:
                         yield {"event": "thinking", "steps": thinking}
 
+                # === HVE Quality Gate (LLM fallback path) ===
+                hve_result_llm = None
+                _llm_with_hve = llm_response
+                if self.hve_pipeline and _is_codegen:
+                    _code_blocks = re.findall(r'```(?:python)?\s*\n(.*?)```', llm_response, re.DOTALL)
+                    _code_to_validate = "\n\n".join(_code_blocks) if _code_blocks else ""
+                    if _code_to_validate.strip():
+                        yield {"event": "status", "text": "Running HVE quality validation (4 layers)..."}
+                        hve_result_llm = self._validate_with_hve(_code_to_validate)
+                        yield {
+                            "event": "hve_validation",
+                            "data": {
+                                "status": hve_result_llm["status"],
+                                "grade": hve_result_llm["grade"],
+                                "score": hve_result_llm["score"],
+                                "issues": hve_result_llm["issues"],
+                                "test_id": hve_result_llm["test_id"],
+                            },
+                        }
+
+                        if hve_result_llm["passed"]:
+                            _qb = "GOOD" if hve_result_llm["score"] >= 7.0 else "ACCEPTABLE"
+                            _llm_with_hve += "\n\nHVE Quality: {} (score: {:.1f}/10)".format(
+                                _qb, hve_result_llm["score"]
+                            )
+                        else:
+                            _llm_with_hve += (
+                                "\n\nHVE Quality Gate: REJECTED (score: {:.1f}/10)\n".format(hve_result_llm["score"])
+                                + "\n".join(f"  - {r}" for r in hve_result_llm["issues"][:5])
+                                + "\n\nThis code has quality issues. Review before using."
+                            )
+
                 # Week 20: Stream the final response as token events
                 _msg_id = f"llm_{int(time.time() * 1000)}"
                 yield {"event": "response_start", "message_id": _msg_id}
                 _chunk_size = 3
-                for _i in range(0, len(llm_response), _chunk_size):
-                    yield {"event": "response_token", "token": llm_response[_i:_i + _chunk_size], "message_id": _msg_id}
-                yield {"event": "response_done", "content": llm_response, "message_id": _msg_id}
+                for _i in range(0, len(_llm_with_hve), _chunk_size):
+                    yield {"event": "response_token", "token": _llm_with_hve[_i:_i + _chunk_size], "message_id": _msg_id}
+                yield {"event": "response_done", "content": _llm_with_hve, "message_id": _msg_id}
                 # Also yield classic response event for non-streaming consumers
-                yield {"event": "response", "text": llm_response, "route_method": "llm"}
+                yield {"event": "response", "text": _llm_with_hve, "route_method": "llm"}
                 break
 
             # Execute tool calls
@@ -1889,6 +2102,38 @@ IMPORTANT: Copy old_string EXACTLY from the file content above. Do NOT add line 
             return result
 
         except Exception:
+            return ""
+
+    def _call_llm_research_analysis(self, prompt: str, system: str = None) -> str:
+        """LLM call for research analysis — synthesizes search results into
+        structured technical guidance before code generation.
+
+        Uses relaxed CPU timeouts since analysis requires reading and
+        synthesizing multiple search results.
+        """
+        try:
+            full_prompt = prompt
+            if system:
+                full_prompt = f"System: {system}\n\n{prompt}"
+
+            analysis_timeout = TimeoutConfig(
+                ttft_timeout=60,
+                idle_timeout=30,
+                absolute_max=120,
+            )
+
+            result, metrics, error = self.llm_client.generate_safe(
+                prompt=full_prompt,
+                model=self.config.model,
+                timeout_override=analysis_timeout,
+                default_on_error="",
+            )
+
+            return result
+
+        except Exception as e:
+            if self.config.verbose:
+                print(f"[RESEARCH] Analysis LLM error: {e}")
             return ""
 
     # Valid parameters for each tool (for filtering invalid LLM arguments)
@@ -2486,6 +2731,134 @@ Use /mode fast|deep3|deep|search to switch"""}
 
         return True
 
+    def _should_skip_multi_candidate(
+        self,
+        complexity: str,
+        remaining_budget: float,
+    ) -> Tuple[bool, str]:
+        """Decide whether to skip Multi-Candidate pipeline.
+
+        Returns (should_skip, reason) tuple.
+
+        Skip conditions:
+        1. Simple/trivial tasks don't benefit from multiple candidates.
+        2. Budget < 180s — not enough for even 1 candidate + validation.
+        3. Windows CPU + large model — sequential generation too slow.
+        """
+        # Rule 1: Simple tasks
+        if complexity in ("TRIVIAL", "SIMPLE", "trivial", "simple"):
+            return True, f"complexity={complexity} (single candidate sufficient)"
+
+        # Rule 2: Low budget
+        if remaining_budget < 180:
+            return True, f"budget={remaining_budget:.0f}s < 180s minimum"
+
+        # Rule 3: Constrained platform
+        _pipeline_model = (
+            getattr(self.config, 'pipeline_model', '')
+            or getattr(getattr(self.config, 'models', None), 'heavy_model', '')
+            or getattr(self.config, 'heavy_model', '')
+            or getattr(self.config, 'model', '')
+            or ''
+        )
+        is_large = any(t in _pipeline_model.lower() for t in ("7b", "13b", "14b", "32b", "70b", "72b"))
+        if sys.platform == "win32" and is_large and remaining_budget < 600:
+            return True, f"Windows CPU + {_pipeline_model} + budget={remaining_budget:.0f}s"
+
+        return False, ""
+
+    def _compute_mc_timeout(self, remaining_budget: float) -> float:
+        """Compute adaptive timeout for MC pipeline.
+
+        Uses min(configured_total_timeout, 80% of remaining budget)
+        to respect user's budget while allowing configured ceiling.
+        CPU-only platforms get a higher ceiling (300s vs default 120s)
+        because local model inference is much slower without GPU.
+        """
+        configured_timeout = 1200.0  # default
+        if (self.multi_candidate_pipeline
+                and self.multi_candidate_pipeline.config.generation_config):
+            configured_timeout = self.multi_candidate_pipeline.config.generation_config.total_timeout
+
+        # CPU-only: raise ceiling to 300s (inference on 7B CPU takes 2-5 min)
+        if sys.platform == "win32" and configured_timeout < 300:
+            configured_timeout = 300.0
+
+        import math
+        if math.isinf(remaining_budget) or remaining_budget > 100_000:
+            return configured_timeout  # unlimited budget → use configured ceiling
+        return min(configured_timeout, remaining_budget * 0.8)
+
+    @staticmethod
+    def _hve_test_id(code: str) -> str:
+        """Pick HVE test profile based on code content."""
+        code_lower = code.lower()
+        if "timeout" in code_lower and ("decorator" in code_lower or "def wrapper" in code_lower):
+            return "decorator_timeout_critical"
+        return "codegen"
+
+    def _validate_with_hve(self, code: str, task_context=None) -> Dict[str, Any]:
+        """Unified HVE validation wrapper with stats tracking and policy enforcement.
+
+        Returns dict with keys: passed, score, validated_code, issues, test_id, status, grade.
+        If HVE is not available, returns a pass-through result (score=10.0, passed=True).
+        """
+        if not self.hve_pipeline:
+            return {
+                "passed": True,
+                "score": 10.0,
+                "validated_code": code,
+                "issues": [],
+                "test_id": "codegen",
+                "status": "SKIPPED",
+                "grade": "N/A",
+            }
+
+        test_id = self._hve_test_id(code)
+        try:
+            result = self.hve_pipeline.validate_code(
+                code=code,
+                test_id=test_id,
+            )
+        except Exception as hve_err:
+            import logging as _hve_log
+            _hve_log.getLogger(__name__).warning("[HVE] Validation error: %s", hve_err)
+            self.stats["hve_fallbacks"] += 1
+            return {
+                "passed": True,
+                "score": 0.0,
+                "validated_code": code,
+                "issues": [f"HVE error: {hve_err}"],
+                "test_id": test_id,
+                "status": "ERROR",
+                "grade": "N/A",
+            }
+
+        passed = result.score >= 5.0
+
+        # Update stats
+        self.stats["hve_validations"] += 1
+        if not passed:
+            self.stats["hve_rejections"] += 1
+
+        # Per-test_id tracking
+        test_stats = self.stats["hve_by_test_id"].setdefault(
+            test_id, {"validations": 0, "rejections": 0}
+        )
+        test_stats["validations"] += 1
+        if not passed:
+            test_stats["rejections"] += 1
+
+        return {
+            "passed": passed,
+            "score": result.score,
+            "validated_code": code,
+            "issues": getattr(result, 'reasons', []),
+            "test_id": test_id,
+            "status": result.status,
+            "grade": getattr(result, 'grade', ''),
+        }
+
     # ==================== DEEP6 MINSKY PROCESSING ====================
 
     def _process_deep6(
@@ -2961,7 +3334,7 @@ Use /mode fast|deep3|deep|search to switch"""}
                 else:
                     result = ExtendedTools.web_search(query, num_results=num_results)
 
-                if result.get("success"):
+                if result.get("success") and result.get("results"):
                     # Normalize result format
                     results = []
                     for r in result.get("results", []):
@@ -2972,13 +3345,20 @@ Use /mode fast|deep3|deep|search to switch"""}
                             "url": r.get("url", "")
                         })
 
-                    return {
-                        "success": True,
-                        "query": query,
-                        "results": results,
-                        "count": len(results),
-                        "source": result.get("source", engine)
-                    }
+                    if results:
+                        return {
+                            "success": True,
+                            "query": query,
+                            "results": results,
+                            "count": len(results),
+                            "source": result.get("source", engine),
+                            "backend": engine,
+                        }
+
+                    # success=True but 0 usable results — treat as failure
+                    last_error = f"{engine} returned 0 usable results"
+                    if self.config.verbose:
+                        print(f"[SEARCH] {engine} failed: {last_error}, trying next...")
                 else:
                     last_error = result.get("error", f"{engine} failed")
                     if self.config.verbose:

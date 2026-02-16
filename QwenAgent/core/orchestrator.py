@@ -76,16 +76,20 @@ class Orchestrator:
     """
 
     def __init__(self, llm_client=None, use_bilingual_router=True,
-                 enable_multi_candidate=True, multi_candidate_model=None):
+                 enable_multi_candidate=True, multi_candidate_model=None,
+                 mc_llm_client=None):
         """
         Args:
-            llm_client: LLM client для Tier 2+
+            llm_client: LLM client для Tier 2+ (может быть функция/лямбда)
             use_bilingual_router: Использовать BilingualContextRouter (Week 1.5)
                                   True = новый роутер (RU+EN+Context+Tier1.5)
                                   False = старый PatternRouter (обратная совместимость)
             enable_multi_candidate: Enable Multi-Candidate generation (Week 2)
             multi_candidate_model: Model for multi-candidate generation
                                    (default: same as llm_client model)
+            mc_llm_client: Week 27 — dedicated async LLM client for MC pipeline.
+                           Must be a StreamingLLMClient (with .generate() method).
+                           If None, falls back to creating one internally.
         """
         # Компоненты
         if use_bilingual_router:
@@ -101,6 +105,7 @@ class Orchestrator:
         self.ducs = DUCSClassifier()
         self.cot_engine = CoTEngine()
         self.llm_client = llm_client
+        self._mc_llm_client = mc_llm_client  # Week 27: dedicated MC client
 
         # Multi-Candidate Pipeline (Week 2)
         self.multi_candidate_pipeline = None
@@ -126,7 +131,11 @@ class Orchestrator:
         self.ducs_templates = self._load_ducs_templates()
 
     def _init_multi_candidate(self, llm_client, model=None):
-        """Initialize Multi-Candidate Pipeline."""
+        """Initialize Multi-Candidate Pipeline.
+
+        Week 27: Uses self._mc_llm_client (dedicated StreamingLLMClient)
+        if provided.  Falls back to wrapping llm_client via AsyncLLMAdapter.
+        """
         try:
             # Detect model name from client
             model_name = model
@@ -138,19 +147,46 @@ class Orchestrator:
                 else:
                     model_name = "qwen2.5-coder:7b"
 
-            # Get underlying async client if possible
-            if hasattr(llm_client, '_async_client'):
+            # Week 27: Use dedicated MC client (passed via constructor)
+            mc_client = getattr(self, '_mc_llm_client', None)
+            if mc_client and hasattr(mc_client, 'generate'):
+                # Proper async client with .generate() — wrap in adapter
+                adapter = AsyncLLMAdapter(mc_client, model=model_name, max_tokens=4096)
+            elif mc_client and hasattr(mc_client, 'generate_stream'):
+                # StreamingLLMClient — wrap in adapter
+                adapter = AsyncLLMAdapter(mc_client, model=model_name, max_tokens=4096)
+            elif hasattr(llm_client, '_async_client'):
+                # Legacy: client with nested async client
                 adapter = AsyncLLMAdapter(llm_client._async_client, model=model_name)
+            elif callable(llm_client) and not hasattr(llm_client, 'generate'):
+                # llm_client is a function/lambda — cannot use directly!
+                # Create a StreamingLLMClient as last resort
+                from .streaming_llm_client import StreamingLLMClient as _SC
+                from .streaming_llm_client import TimeoutConfig as _TC
+                mc_client = _SC(
+                    base_url="http://localhost:11434",
+                    timeout_config=_TC(ttft_timeout=300, idle_timeout=120, absolute_max=600),
+                )
+                adapter = AsyncLLMAdapter(mc_client, model=model_name, max_tokens=4096)
             else:
                 adapter = AsyncLLMAdapter(llm_client, model=model_name)
 
             self.multi_candidate_pipeline = MultiCandidatePipeline(
                 llm=adapter,
                 config=PipelineConfig(
-                    n_candidates=3,
-                    parallel_generation=True,
+                    n_candidates=2,              # 2 for single-GPU
+                    parallel_generation=False,    # Sequential — avoids GPU contention
                     fail_fast_validation=True,
                 ),
+            )
+            # Week 27: Verify adapter type at init
+            _llm_obj = self.multi_candidate_pipeline.generator.llm
+            import logging as _log_mc
+            _log_mc.getLogger(__name__).info(
+                "[Orchestrator MC] llm_type=%s, has_generate=%s, client_type=%s",
+                type(_llm_obj).__name__,
+                hasattr(_llm_obj, 'generate'),
+                type(getattr(_llm_obj, '_client', None)).__name__,
             )
         except Exception as e:
             import logging
@@ -189,20 +225,27 @@ class Orchestrator:
             return tier1_result
 
         # ===== LLM Required - Determine complexity =====
-        complexity = self._assess_complexity(user_input)
-
-        if complexity == "simple":
-            # TIER 2: Simple LLM
-            result = self._process_tier2_simple(user_input, context)
-            self.stats["tier2_simple_llm"] += 1
-        elif complexity == "moderate":
-            # TIER 3: Chain-of-Thought
-            result = self._process_tier3_cot(user_input, context)
-            self.stats["tier3_cot"] += 1
-        else:
-            # TIER 4: Autonomous agent
+        # Week 27: Code-gen tasks bypass keyword complexity → straight to tier4 (MC pipeline)
+        # The agent's adaptive strategy handles budget/platform adaptation internally
+        if self.multi_candidate_pipeline and self._is_code_generation_task(user_input):
             result = self._process_tier4_autonomous(user_input, context)
             self.stats["tier4_autonomous"] += 1
+            self.stats["tier4_multi_candidate"] = self.stats.get("tier4_multi_candidate", 0) + 1
+        else:
+            complexity = self._assess_complexity(user_input)
+
+            if complexity == "simple":
+                # TIER 2: Simple LLM
+                result = self._process_tier2_simple(user_input, context)
+                self.stats["tier2_simple_llm"] += 1
+            elif complexity == "moderate":
+                # TIER 3: Chain-of-Thought
+                result = self._process_tier3_cot(user_input, context)
+                self.stats["tier3_cot"] += 1
+            else:
+                # TIER 4: Autonomous agent
+                result = self._process_tier4_autonomous(user_input, context)
+                self.stats["tier4_autonomous"] += 1
 
         result.processing_time_ms = self._calc_time(start_time)
         self._update_no_llm_rate()
@@ -441,10 +484,13 @@ REMEMBER: Use 'read' tool first, then 'edit' tool. Do NOT just generate code!"""
 
         code_gen_indicators = [
             "write a function", "write a class", "write code",
+            "write a decorator", "write decorator", "write a script",
             "create a function", "create a class", "create a script",
-            "implement", "generate code", "generate a",
+            "create a decorator", "implement", "generate code", "generate a",
             "write python", "write dockerfile", "write yaml",
+            "write javascript", "write typescript", "write bash",
             "напиши функцию", "напиши код", "создай функцию",
+            "напиши декоратор", "создай декоратор",
             "создай класс", "реализуй", "сгенерируй",
         ]
 

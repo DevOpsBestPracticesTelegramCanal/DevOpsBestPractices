@@ -181,6 +181,10 @@ _QUALITY_RULE_NAMES = [
     "runtime_test",
     # Week 25
     "decorator_red_flags",
+    # Week 28
+    "thread_safety",
+    "init_completeness",
+    "cross_module_contract",
 ]
 
 # Profile → validation config
@@ -208,6 +212,9 @@ _PROFILE_CONFIGS: Dict[ValidationProfile, Dict[str, Any]] = {
             "runtime_test",
             # Week 25: decorator checks
             "decorator_red_flags",
+            # Week 28: thread safety + init completeness
+            "thread_safety",
+            "init_completeness",
         ],
         "fail_fast": False,
         "parallel": True,
@@ -227,6 +234,10 @@ _PROFILE_CONFIGS: Dict[ValidationProfile, Dict[str, Any]] = {
             "runtime_test",
             # Week 25
             "decorator_red_flags",
+            # Week 28: thread safety, init completeness, cross-module contract
+            "thread_safety",
+            "init_completeness",
+            "cross_module_contract",
         ],
         "fail_fast": True,
         "parallel": True,

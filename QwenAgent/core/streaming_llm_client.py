@@ -240,9 +240,12 @@ class StreamingLLMClient:
             request_body["options"] = options
 
         try:
+            # sock_read must cover both TTFT wait and inter-token idle.
+            # Use the larger of ttft_timeout and idle_timeout + headroom.
+            _sock_read = max(config.ttft_timeout, config.idle_timeout) + 10
             timeout = aiohttp.ClientTimeout(
                 total=config.absolute_max,
-                sock_read=config.idle_timeout + 5  # Немного больше idle для сетевых задержек
+                sock_read=_sock_read,
             )
 
             async with aiohttp.ClientSession(timeout=timeout) as session:

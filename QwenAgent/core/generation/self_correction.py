@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 MAX_ITERATIONS = 3
 MIN_SCORE_FOR_CORRECTION = 0.1  # Don't correct if code is total garbage
 
+# IR-03: Repair strategy constants
+REPAIR_FULL_REGEN = "FULL_REGEN"
+REPAIR_TARGETED_PATCH = "TARGETED_PATCH"
+
 
 @dataclass
 class CorrectionAttempt:
@@ -94,6 +98,95 @@ class CorrectionResult:
         return s
 
 
+def _is_localized_error(error_msg: str) -> bool:
+    """Check if an error message refers to a specific, localized code location.
+
+    Localized errors mention a specific line number or function name,
+    meaning they can be fixed with a targeted patch rather than full regen.
+    """
+    # Errors that mention specific lines or functions are localized
+    localized_patterns = [
+        "line ",
+        "at line",
+        "function ",
+        "method ",
+        "class ",
+        "def ",
+    ]
+    error_lower = error_msg.lower()
+    return any(p in error_lower for p in localized_patterns)
+
+
+def choose_repair_strategy(errors: List[str]) -> str:
+    """Choose between targeted patch and full regeneration.
+
+    Uses TARGETED_PATCH for 1-2 localized errors (specific line/function),
+    uses FULL_REGEN for 3+ errors or non-localized issues.
+
+    Args:
+        errors: List of validation error messages.
+
+    Returns:
+        REPAIR_TARGETED_PATCH or REPAIR_FULL_REGEN.
+    """
+    if not errors:
+        return REPAIR_FULL_REGEN
+
+    if len(errors) > 2:
+        return REPAIR_FULL_REGEN
+
+    if all(_is_localized_error(e) for e in errors):
+        return REPAIR_TARGETED_PATCH
+
+    return REPAIR_FULL_REGEN
+
+
+def build_targeted_patch_prompt(
+    original_query: str,
+    previous_code: str,
+    errors: List[str],
+    iteration: int,
+    blackboard_hints: str = "",
+) -> str:
+    """Build a targeted patch prompt that fixes only the broken parts.
+
+    Unlike full regen, this prompt instructs the model to keep all working
+    code identical and only fix the specific functions/lines with errors.
+
+    Args:
+        original_query: The original task description.
+        previous_code: The code from the previous iteration.
+        errors: The specific validation errors (1-2 localized).
+        iteration: Current iteration number.
+        blackboard_hints: Optional knowledge from prior iterations.
+
+    Returns:
+        A prompt string for targeted code repair.
+    """
+    error_block = "\n".join(f"  - {e}" for e in errors)
+
+    hints_section = ""
+    if blackboard_hints:
+        hints_section = (
+            f"\n--- KNOWLEDGE FROM PREVIOUS ATTEMPTS ---\n"
+            f"{blackboard_hints}\n"
+        )
+
+    return (
+        f"--- TARGETED FIX (iteration {iteration}/{MAX_ITERATIONS}) ---\n"
+        f"The code below has {len(errors)} specific error(s). "
+        f"Fix ONLY the broken part(s). Keep ALL other code IDENTICAL.\n\n"
+        f"Original task: {original_query}\n\n"
+        f"Code with errors:\n```\n{previous_code}\n```\n\n"
+        f"Errors to fix:\n{error_block}\n"
+        f"{hints_section}\n"
+        f"IMPORTANT: Output the COMPLETE code with ONLY the broken parts fixed. "
+        f"Do NOT rewrite working functions. Do NOT change function signatures. "
+        f"Do NOT add new features. Fix ONLY the errors listed above.\n"
+        f"Output ONLY the corrected source code."
+    )
+
+
 def extract_validation_errors(pipeline_result) -> List[str]:
     """Extract structured validation errors from a PipelineResult.
 
@@ -123,6 +216,9 @@ def build_correction_prompt(
 ) -> str:
     """Build a prompt that includes previous code + its errors.
 
+    Automatically chooses between targeted patch (for 1-2 localized errors)
+    and full regeneration (for 3+ or non-localized errors).
+
     The model receives:
     1. The original task description
     2. The code it generated last time
@@ -130,6 +226,23 @@ def build_correction_prompt(
     4. Blackboard hints from prior iterations (Week 21)
     5. Instructions to fix those errors
     """
+    # IR-03: Choose repair strategy
+    strategy = choose_repair_strategy(errors)
+    logger.info(
+        "[SelfCorrection] repair strategy: %s for %d errors",
+        strategy, len(errors),
+    )
+
+    if strategy == REPAIR_TARGETED_PATCH:
+        return build_targeted_patch_prompt(
+            original_query=original_query,
+            previous_code=previous_code,
+            errors=errors,
+            iteration=iteration,
+            blackboard_hints=blackboard_hints,
+        )
+
+    # FULL_REGEN path (original behavior)
     error_block = "\n".join(f"  - {e}" for e in errors[:10])  # Cap at 10 errors
 
     # Week 21: Inject blackboard knowledge if available

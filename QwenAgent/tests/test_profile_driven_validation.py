@@ -104,7 +104,7 @@ class TestProfileRuleSelection:
     def test_balanced_seven_rules(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.BALANCED)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 13  # 7 original + 3 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
+        assert len(rules) == 15  # 7 original + 3 quality (Week 22) + 2 (Week 24) + 1 (Week 25) + 2 (Week 28)
         rule_names = [r.name for r in rules]
         assert "ast_syntax" in rule_names
         assert "no_forbidden_imports" in rule_names
@@ -120,16 +120,19 @@ class TestProfileRuleSelection:
         # Week 24
         assert "signature_checker" in rule_names
         assert "runtime_test" in rule_names
+        # Week 28
+        assert "thread_safety" in rule_names
+        assert "init_completeness" in rule_names
 
     def test_safe_fix_all_rules(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.SAFE_FIX)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 18  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
+        assert len(rules) == 21  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25) + 3 (Week 28)
 
     def test_critical_all_rules(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.CRITICAL)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 18  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
+        assert len(rules) == 21  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25) + 3 (Week 28)
 
     def test_fast_dev_no_fail_fast(self):
         cfg = TaskAbstraction.get_validation_config(ValidationProfile.FAST_DEV)
@@ -274,28 +277,28 @@ class TestEndToEndProfileFlow:
 
         cfg = TaskAbstraction.get_validation_config(ctx.validation_profile)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 18  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
+        assert len(rules) == 21  # 8 original + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25) + 3 (Week 28)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is False
 
     def test_moderate_codegen_balanced(self):
-        """Moderate codegen → BALANCED profile → 10 rules (7 + 3 quality)."""
+        """Moderate codegen → BALANCED profile → 15 rules (7 + 3 quality + 2 W24 + 1 W25 + 2 W28)."""
         ta = TaskAbstraction()
         ctx = ta.classify("write a sort function", is_codegen=True, complexity="MODERATE")
         assert ctx.validation_profile == ValidationProfile.BALANCED
 
         cfg = TaskAbstraction.get_validation_config(ctx.validation_profile)
         rules = build_rules_for_names(cfg["rule_names"])
-        assert len(rules) == 13  # 7 original + 3 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
+        assert len(rules) == 15  # 7 original + 3 quality (Week 22) + 2 (Week 24) + 1 (Week 25) + 2 (Week 28)
 
     def test_complex_codegen_safe_fix(self):
-        """Complex codegen → HIGH risk → SAFE_FIX profile → all 15 rules."""
+        """Complex codegen → HIGH risk → SAFE_FIX profile → 21 rules."""
         ta = TaskAbstraction()
         ctx = ta.classify("build database migration system", is_codegen=True, complexity="COMPLEX")
         assert ctx.validation_profile == ValidationProfile.SAFE_FIX
 
         cfg = TaskAbstraction.get_validation_config(ctx.validation_profile)
-        assert len(cfg["rule_names"]) == 18  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
+        assert len(cfg["rule_names"]) == 21  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25) + 3 (Week 28)
         assert cfg["fail_fast"] is True
         assert cfg["parallel"] is True
 
@@ -332,7 +335,7 @@ class TestPipelineProfileIntegration:
         cfg2 = TaskAbstraction.get_validation_config(ValidationProfile.CRITICAL)
         rules2 = build_rules_for_names(cfg2["rule_names"])
         validator2 = RuleRunner(rules2)
-        assert len(validator2.rules) == 18  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25)
+        assert len(validator2.rules) == 21  # 8 + 7 quality (Week 22) + 2 (Week 24) + 1 (Week 25) + 3 (Week 28)
 
     def test_profile_resolution_builds_correct_selector(self):
         """When validation_profile is set, correct scoring weights are used."""

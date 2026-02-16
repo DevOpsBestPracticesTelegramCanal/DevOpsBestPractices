@@ -476,6 +476,20 @@ try:
 except ImportError:
     pass
 
+# Week 28: Register thread safety, init completeness, cross-module contract validators
+try:
+    from .thread_safety import ThreadSafetyRule
+    from .init_completeness import InitCompletenessRule
+    from .cross_module_contract import CrossModuleContractRule
+
+    _RULE_REGISTRY.update({
+        "thread_safety": ThreadSafetyRule,
+        "init_completeness": InitCompletenessRule,
+        "cross_module_contract": CrossModuleContractRule,
+    })
+except ImportError:
+    pass
+
 
 def build_rules_for_names(names: List[str]) -> List[Rule]:
     """Build a list of Rule instances from rule names.

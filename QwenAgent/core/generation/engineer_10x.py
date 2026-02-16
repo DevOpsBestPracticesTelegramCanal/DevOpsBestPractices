@@ -44,6 +44,47 @@ DEADLY_SINS = [
 ]
 
 # ---------------------------------------------------------------------------
+# 6-Point Self-Check (PE-06)
+# ---------------------------------------------------------------------------
+
+SELF_CHECK_INSTRUCTIONS = """
+## PRE-GENERATION SELF-CHECK (verify mentally before writing code):
+1. All function signatures have type hints AND return types
+2. All external calls (DB, HTTP, file I/O) wrapped in try/except with SPECIFIC exceptions
+3. No hardcoded secrets, no eval(), no mutable default arguments (def f(items=[]))
+4. All features promised in docstring/description are ACTUALLY implemented (no stubs/TODOs)
+5. Thread safety: any shared mutable state (dict, list, set) protected by Lock/RLock
+6. Resource cleanup: files/connections/cursors closed via context manager (with) or finally block
+"""
+
+# ---------------------------------------------------------------------------
+# Known Error Patterns (PE-03)
+# ---------------------------------------------------------------------------
+
+_ERROR_PATTERNS = {
+    "daemon_thread": "WARNING: Do NOT use daemon=True for threads that must complete their work. Use join() with timeout.",
+    "daemon": "WARNING: Do NOT use daemon=True for threads that must complete their work. Use join() with timeout.",
+    "sqlite": "WARNING: Always use CREATE TABLE IF NOT EXISTS. Enable WAL mode for concurrent reads. Keep persistent connection for :memory: DBs.",
+    "websocket": "WARNING: Use asyncio.wait_for() for timeouts in async code. Do NOT use signal.alarm() — it only works on main thread.",
+    "decorator": "WARNING: Always use @functools.wraps(func) in decorators. Place @retry BELOW @cache. Preserve function signature with *args, **kwargs.",
+    "asyncio": "WARNING: Never call asyncio.run() inside an already running loop. Use nest_asyncio.apply() or spawn a new thread.",
+    "pickle": "WARNING: Never use pickle.loads() on untrusted data. Use json or msgpack instead.",
+    "subprocess": "WARNING: Always use shell=False with subprocess. Pass args as a list, never as a string.",
+    "jwt": "WARNING: Always verify JWT signatures. Set short expiry. Use RS256 over HS256 for production.",
+    "sql": "WARNING: ALWAYS use parameterized queries (? placeholders). NEVER use f-strings or .format() for SQL.",
+    "redis": "WARNING: Always set key TTL/expiry. Handle ConnectionError. Use connection pooling.",
+    "thread_pool": "WARNING: Always call executor.shutdown(wait=True). Handle futures exceptions. Set max_workers explicitly.",
+    "logging": "WARNING: Use logging module, not print(). Set up proper handlers. Never log sensitive data (passwords, tokens).",
+    "file_io": "WARNING: Always use 'with' statement for file operations. Handle FileNotFoundError. Use pathlib over os.path.",
+    "api_key": "WARNING: Never hardcode API keys. Use environment variables or secrets manager.",
+    "password": "WARNING: Never store plaintext passwords. Use bcrypt or argon2. Salt every hash.",
+    "encryption": "WARNING: Use AES-GCM or ChaCha20 for symmetric encryption. Never use ECB mode. Always generate random IVs.",
+    "rate_limit": "WARNING: Implement exponential backoff. Handle 429 responses. Use token bucket algorithm.",
+    "connection_pool": "WARNING: Set max_connections limit. Implement health checks. Handle connection timeout.",
+    "cache": "WARNING: Set TTL on all cache entries. Handle cache invalidation. Protect shared cache with Lock.",
+}
+
+# ---------------------------------------------------------------------------
 # Domain-specific quality checklists
 # ---------------------------------------------------------------------------
 
@@ -115,6 +156,39 @@ ENGINEER_10X_ROLE = GeneratorRole(
 
 
 # ---------------------------------------------------------------------------
+# Error pattern lookup (PE-03)
+# ---------------------------------------------------------------------------
+
+def get_error_warnings(query: str) -> str:
+    """Look up known error patterns for the given query and return warnings.
+
+    Scans query keywords against _ERROR_PATTERNS to proactively warn
+    the model about common failure modes for Qwen 7B.
+
+    Args:
+        query: The user's code generation request.
+
+    Returns:
+        Warning block string, or empty string if no patterns match.
+    """
+    query_lower = query.lower()
+    warnings = []
+    for keyword, warning in _ERROR_PATTERNS.items():
+        if keyword in query_lower:
+            warnings.append(warning)
+
+    if not warnings:
+        return ""
+
+    # Deduplicate
+    unique_warnings = list(dict.fromkeys(warnings))
+    block = "\n## KNOWN PITFALLS (avoid these common mistakes):\n"
+    for w in unique_warnings[:5]:  # Cap at 5 to avoid prompt bloat
+        block += f"- {w}\n"
+    return block
+
+
+# ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
 
@@ -123,6 +197,8 @@ def build_10x_prompt(
     task_type: Optional[str] = None,
     include_sins: bool = True,
     include_checklist: bool = True,
+    include_self_check: bool = True,
+    query: str = "",
 ) -> str:
     """Enhance a system prompt with 10x engineer quality requirements.
 
@@ -131,11 +207,16 @@ def build_10x_prompt(
         task_type: Domain for checklist (python, fastapi, kubernetes, etc.).
         include_sins: Whether to include the 7 deadly sins.
         include_checklist: Whether to include domain checklist.
+        include_self_check: Whether to include the 6-point self-check (PE-06).
+        query: Original user query for error pattern lookup (PE-03).
 
     Returns:
         Enhanced system prompt string.
     """
     parts = [ENGINEER_10X_ROLE.system_prefix, "", base_prompt]
+
+    if include_self_check:
+        parts.append(SELF_CHECK_INSTRUCTIONS)
 
     if include_sins:
         sins_block = "\n## CRITICAL RULES (violations = automatic rejection):\n"
@@ -151,6 +232,12 @@ def build_10x_prompt(
             for item in checklist:
                 check_block += f"- [ ] {item}\n"
             parts.append(check_block)
+
+    # PE-03: Inject known error pattern warnings
+    if query:
+        error_block = get_error_warnings(query)
+        if error_block:
+            parts.append(error_block)
 
     return "\n".join(parts)
 

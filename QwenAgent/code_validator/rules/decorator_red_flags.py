@@ -42,6 +42,9 @@ class DecoratorRedFlagsRule(Rule):
         issues.extend(self._check_missing_wraps(tree))
         issues.extend(self._check_unhashable_cache_key(tree))
         issues.extend(self._check_missing_timeout_cancel(tree))
+        issues.extend(self._check_fake_timeout(tree))
+        issues.extend(self._check_thread_unsafe_cache(tree, code))
+        issues.extend(self._check_silent_retry_failure(tree))
 
         if issues:
             score = max(0.0, 1.0 - 0.2 * len(issues))
@@ -234,6 +237,153 @@ class DecoratorRedFlagsRule(Rule):
                     f"Line {line}: decorator spawns Thread but never "
                     f"joins/cancels it — potential thread leak"
                 )
+        return issues
+
+    # ------------------------------------------------------------------
+    # Week 27: New checks for codegen quality gate
+    # ------------------------------------------------------------------
+
+    def _check_fake_timeout(self, tree: ast.AST) -> List[str]:
+        """Detect timeout decorators that don't actually enforce timeout.
+
+        A real timeout needs concurrent.futures, signal.alarm, asyncio.wait_for,
+        or threading with join(timeout=).  A try/except wrapper does NOT
+        interrupt a running function.
+        """
+        issues: List[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            # Heuristic: function named *timeout* that is a decorator
+            if "timeout" not in node.name.lower():
+                continue
+            if not self._is_decorator_function(node):
+                continue
+
+            # Search entire decorator subtree for real timeout mechanisms
+            src = ast.dump(node)
+            has_real_timeout = any(kw in src for kw in (
+                "ThreadPoolExecutor",
+                "ProcessPoolExecutor",
+                "submit",             # futures.submit
+                "wait_for",           # asyncio.wait_for
+                "alarm",              # signal.alarm
+                "Timer",              # threading.Timer
+            ))
+
+            # Also check for thread.join(timeout=...)
+            for child in ast.walk(node):
+                if (isinstance(child, ast.Call)
+                        and isinstance(child.func, ast.Attribute)
+                        and child.func.attr == "join"
+                        and child.keywords):
+                    for kw in child.keywords:
+                        if kw.arg == "timeout":
+                            has_real_timeout = True
+
+            if not has_real_timeout:
+                line = getattr(node, "lineno", "?")
+                issues.append(
+                    f"Line {line}: timeout decorator '{node.name}' has no real "
+                    f"timeout mechanism (needs concurrent.futures, signal, or "
+                    f"threading.Timer); try/except alone cannot interrupt a "
+                    f"running function"
+                )
+        return issues
+
+    def _check_thread_unsafe_cache(self, tree: ast.AST, code: str) -> List[str]:
+        """Detect global dict used as cache without thread-safety."""
+        issues: List[str] = []
+        # Find module-level dict assignments (CACHE = {})
+        global_dicts: List[str] = []
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (isinstance(target, ast.Name)
+                            and isinstance(node.value, ast.Dict)):
+                        global_dicts.append(target.id)
+
+        if not global_dicts:
+            return issues
+
+        # Check if any function writes to these dicts
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            for child in ast.walk(node):
+                if isinstance(child, ast.Subscript):
+                    if (isinstance(child.value, ast.Name)
+                            and child.value.id in global_dicts):
+                        # Dict is accessed inside a function — check for Lock
+                        has_lock = any(kw in code for kw in (
+                            "Lock()", "RLock()", "threading.Lock",
+                            "threading.RLock", "lock.acquire",
+                            "with lock", "with self.lock",
+                            "with self._lock",
+                        ))
+                        if not has_lock:
+                            line = getattr(child, "lineno", "?")
+                            issues.append(
+                                f"Line {line}: global dict '{child.value.id}' "
+                                f"used as cache without threading.Lock — "
+                                f"thread-unsafe in concurrent code"
+                            )
+                            # Only report once per dict
+                            global_dicts.remove(child.value.id)
+                        break
+        return issues
+
+    def _check_silent_retry_failure(self, tree: ast.AST) -> List[str]:
+        """Detect retry loops that silently return None on exhaustion."""
+        issues: List[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if "retry" not in node.name.lower():
+                continue
+            if not self._is_decorator_function(node):
+                continue
+
+            wrapper = self._find_wrapper_function(node)
+            if wrapper is None:
+                continue
+
+            # Check: does the wrapper have a for-loop with try/except?
+            for child in ast.walk(wrapper):
+                if not isinstance(child, ast.For):
+                    continue
+                has_try = any(isinstance(c, ast.Try) for c in ast.walk(child))
+                if not has_try:
+                    continue
+
+                # Check what happens AFTER the for loop — is there a raise?
+                # The for loop is a child of wrapper.body; check statements
+                # that come after it.
+                for_idx = None
+                for i, stmt in enumerate(wrapper.body):
+                    if stmt is child:
+                        for_idx = i
+                        break
+
+                if for_idx is not None:
+                    after_for = wrapper.body[for_idx + 1:]
+                    has_raise_after = any(
+                        isinstance(s, ast.Raise) for s in after_for
+                    )
+                    # Also check for-else clause
+                    has_raise_in_else = False
+                    if child.orelse:
+                        has_raise_in_else = any(
+                            isinstance(s, ast.Raise) for s in child.orelse
+                        )
+
+                    if not has_raise_after and not has_raise_in_else:
+                        line = getattr(wrapper, "lineno", "?")
+                        issues.append(
+                            f"Line {line}: retry wrapper returns None "
+                            f"silently after exhausting all attempts — "
+                            f"should raise the last exception"
+                        )
         return issues
 
     # ------------------------------------------------------------------

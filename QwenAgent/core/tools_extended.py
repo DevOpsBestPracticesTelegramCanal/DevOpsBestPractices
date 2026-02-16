@@ -485,11 +485,36 @@ class ExtendedTools:
     @staticmethod
     def web_search(query: str, num_results: int = 5) -> Dict[str, Any]:
         """
-        Search the web using DuckDuckGo
-        Like Claude Code's WebSearch tool
+        Search the web using DuckDuckGo.
+        Primary: duckduckgo-search library (DDGS API).
+        Fallback: HTML scraping via requests + BeautifulSoup.
         """
+        # Primary: ddgs library (reliable, no scraping)
         try:
-            # Use DuckDuckGo HTML search (no API key needed)
+            from ddgs import DDGS
+            raw = list(DDGS(timeout=10).text(query, max_results=num_results))
+            results = []
+            for item in raw:
+                results.append({
+                    "title": item.get("title", ""),
+                    "snippet": item.get("body", ""),
+                    "url": item.get("href", ""),
+                })
+            if results:
+                return {
+                    "success": True,
+                    "query": query,
+                    "count": len(results),
+                    "results": results,
+                    "source": "duckduckgo",
+                }
+        except ImportError:
+            pass  # ddgs not installed, fall through to HTML
+        except Exception as e:
+            pass  # DDGS failed (rate limit, timeout), fall through to HTML
+
+        # Fallback: HTML scraping
+        try:
             url = "https://html.duckduckgo.com/html/"
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -511,13 +536,16 @@ class ExtendedTools:
                         "url": link_elem.get_text(strip=True) if link_elem else ""
                     })
 
-            return {
-                "success": True,
-                "query": query,
-                "count": len(results),
-                "results": results,
-                "source": "duckduckgo"
-            }
+            if results:
+                return {
+                    "success": True,
+                    "query": query,
+                    "count": len(results),
+                    "results": results,
+                    "source": "duckduckgo",
+                }
+
+            return {"success": False, "error": "DuckDuckGo returned 0 results", "source": "duckduckgo"}
         except Exception as e:
             return {"success": False, "error": str(e), "source": "duckduckgo"}
 

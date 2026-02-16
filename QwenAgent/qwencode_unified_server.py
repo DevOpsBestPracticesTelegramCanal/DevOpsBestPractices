@@ -883,11 +883,19 @@ def chat_stream():
                         # Phase 7: Working Memory events — passthrough
                         elif evt_type == "working_memory":
                             yield sse_working_memory(evt)
+                        # HVE Quality Gate events — passthrough
+                        elif evt_type == "hve_validation":
+                            yield sse_event("hve_validation", evt.get("data", evt))
                     _stats["requests_deep_path"] += 1
                     yield sse_done(True, "deep_agent", swecas=swecas_info)
                     deep_handled = True
                 except Exception as agent_err:
+                    import traceback
+                    tb = traceback.format_exc()
                     print(f"[AGENT ERROR] {agent_err}, falling back to orchestrator")
+                    print(f"[AGENT TRACEBACK]\n{tb}")
+                    import logging as _log
+                    _log.getLogger("qwencode").error("Agent error: %s\n%s", agent_err, tb)
                     yield sse_status(f"Agent error, falling back...")
 
             # --- Priority 2: Orchestrator (tier waterfall) ---
@@ -1017,14 +1025,36 @@ agent = None
 
 if HAS_ORCHESTRATOR:
     try:
+        # Week 27: Create dedicated StreamingLLMClient for MC pipeline
+        # so the orchestrator doesn't wrap a lambda in AsyncLLMAdapter
+        _orch_mc_client = None
+        try:
+            from core.streaming_llm_client import StreamingLLMClient as _OStreamingClient
+            from core.streaming_llm_client import TimeoutConfig as _OTimeoutConfig
+            _orch_mc_client = _OStreamingClient(
+                base_url=config.ollama_url,
+                timeout_config=_OTimeoutConfig(
+                    ttft_timeout=300,   # 5 min — 7B on CPU needs long prefill
+                    idle_timeout=120,   # 2 min between tokens
+                    absolute_max=600,   # 10 min per candidate
+                ),
+            )
+            print(f"[ORCHESTRATOR] MC client created (url={config.ollama_url})")
+        except ImportError:
+            print("[ORCHESTRATOR] StreamingLLMClient not available for MC pipeline")
+
         orchestrator = Orchestrator(
             llm_client=lambda p: call_llm(p, config.heavy_model),
             use_bilingual_router=False,
             enable_multi_candidate=True,
+            multi_candidate_model=config.heavy_model,
+            mc_llm_client=_orch_mc_client,
         )
         print(f"[ORCHESTRATOR] Initialized (multi-candidate={orchestrator.multi_candidate_pipeline is not None})")
     except Exception as _orch_init_err:
+        import traceback
         print(f"[ORCHESTRATOR] Init failed: {_orch_init_err}")
+        traceback.print_exc()
 
 if HAS_AGENT:
     try:
@@ -1457,6 +1487,30 @@ def get_stats():
     if agent:
         stats_data["agent_stats"] = agent.stats
     return jsonify(stats_data)
+
+
+# Week 27: HVE Quality Gate statistics
+@app.route('/api/stats/hve', methods=['GET'])
+def hve_stats():
+    """Get HVE validation statistics"""
+    if not agent or not hasattr(agent, 'stats'):
+        return jsonify({"error": "Agent not available"}), 503
+    stats = agent.stats
+    hve_validations = stats.get("hve_validations", 0)
+    hve_rejections = stats.get("hve_rejections", 0)
+    hve_by_test = stats.get("hve_by_test_id", {})
+    return jsonify({
+        "validations": hve_validations,
+        "rejections": hve_rejections,
+        "acceptance_rate": (
+            (hve_validations - hve_rejections) / max(hve_validations, 1)
+        ),
+        "by_test_id": hve_by_test,
+        "rejection_rate_by_test": {
+            tid: data["rejections"] / max(data["validations"], 1)
+            for tid, data in hve_by_test.items()
+        },
+    })
 
 
 # Week 23: Research Agent REST endpoint
