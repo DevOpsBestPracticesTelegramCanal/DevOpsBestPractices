@@ -1539,30 +1539,43 @@ def trinity_toggle():
         return jsonify({"success": False, "error": "Agent not available"}), 503
 
     data = request.json or {}
-    enable = data.get('enabled', True)
 
     pipeline = getattr(agent, 'multi_candidate_pipeline', None)
     if not pipeline:
         return jsonify({"success": False, "error": "Pipeline not initialized"}), 400
 
     manager = getattr(pipeline, 'model_manager', None)
-    if enable and not manager:
-        # Cannot enable without model config
-        return jsonify({
-            "success": False,
-            "error": "No Trinity models configured. Set QWEN_TRINITY_MODELS env var."
-        }), 400
 
-    if manager:
-        if not enable:
-            # Disable by clearing models temporarily (keep config for re-enable)
-            manager._disabled = True
-        else:
-            manager._disabled = False
+    # Handle strategy change
+    strategy = data.get('strategy')
+    if strategy and manager:
+        if strategy in ('rotate', 'role_based', 'risk_based'):
+            manager.strategy = strategy
 
+    # Handle enable/disable toggle
+    if 'enabled' in data:
+        enable = data['enabled']
+    elif 'strategy' not in data:
+        # Empty body = toggle current state
+        enable = not manager.enabled if manager else True
+    else:
+        enable = None  # strategy-only change, don't toggle
+
+    if enable is not None:
+        if enable and not manager:
+            return jsonify({
+                "success": False,
+                "error": "No Trinity models configured. Set QWEN_TRINITY_MODELS env var."
+            }), 400
+
+        if manager:
+            manager._disabled = not enable
+
+    is_enabled = manager is not None and not getattr(manager, '_disabled', False)
     return jsonify({
         "success": True,
-        "enabled": enable and manager is not None and not getattr(manager, '_disabled', False),
+        "enabled": is_enabled,
+        "strategy": manager.strategy if manager else "single",
     })
 
 

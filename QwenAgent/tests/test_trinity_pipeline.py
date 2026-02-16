@@ -514,3 +514,70 @@ class TestTrinityRole:
     def test_default_models(self):
         assert TrinityRole.ARCHITECT in DEFAULT_TRINITY_MODELS or \
                TrinityRole.ARCHITECT.value in {str(k) for k in DEFAULT_TRINITY_MODELS}
+
+
+class TestToggleStrategyChange:
+    """Test toggle endpoint behavior with strategy changes."""
+
+    def _manager(self):
+        return TrinityModelManager(
+            models=TRINITY_MODELS,
+            strategy="rotate",
+        )
+
+    def test_strategy_change_rotate_to_role_based(self):
+        m = self._manager()
+        assert m.strategy == "rotate"
+        m.strategy = "role_based"
+        assert m.strategy == "role_based"
+        # Selection should now use role_based logic
+        model = m.select_for_candidate(0)
+        assert model == TRINITY_MODELS["developer"]
+
+    def test_strategy_change_to_risk_based(self):
+        m = self._manager()
+        m.strategy = "risk_based"
+        # Without context → full pipeline
+        model = m.select_for_candidate(0)
+        assert model in TRINITY_MODELS.values()
+
+    def test_toggle_disable_reenable(self):
+        m = self._manager()
+        assert m.enabled is True
+        m._disabled = True
+        assert m.enabled is False
+        m._disabled = False
+        assert m.enabled is True
+
+    def test_toggle_preserves_strategy(self):
+        m = self._manager()
+        m.strategy = "risk_based"
+        m._disabled = True
+        assert m.enabled is False
+        assert m.strategy == "risk_based"
+        m._disabled = False
+        assert m.enabled is True
+        assert m.strategy == "risk_based"
+
+    def test_toggle_preserves_stats(self):
+        m = self._manager()
+        m.select_for_candidate(0)
+        m.select_for_candidate(1)
+        assert m._stats["selections"] == 2
+        m._disabled = True
+        m._disabled = False
+        assert m._stats["selections"] == 2
+
+    def test_status_reflects_strategy_change(self):
+        m = self._manager()
+        m.strategy = "role_based"
+        status = m.get_status()
+        assert status["strategy"] == "role_based"
+
+    def test_invalid_strategy_still_works(self):
+        """Manager doesn't crash on unexpected strategy — falls through to rotate."""
+        m = self._manager()
+        m.strategy = "unknown"
+        # select_for_candidate should fall through to the else branch (rotate)
+        model = m.select_for_candidate(0)
+        assert model in TRINITY_MODELS.values()

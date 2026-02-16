@@ -12,6 +12,7 @@ import { candidatePanel } from './modules/candidate-panel.js';
 import { correctionTracker } from './modules/correction-tracker.js';
 import { dashboard } from './modules/dashboard.js';
 import { settingsPanel } from './modules/settings-panel.js';
+import { trinityPanel } from './modules/trinity-panel.js';
 import { deepWizard } from './modules/deep-wizard.js';
 import { workingMemoryPanel } from './modules/working-memory-panel.js';
 import { checkpointManager } from './modules/checkpoint-manager.js';
@@ -49,6 +50,13 @@ function initSettings() {
     const btn = document.getElementById('settings-btn');
     if (btn) {
         btn.addEventListener('click', () => settingsPanel.open());
+    }
+}
+
+function initTrinity() {
+    const btn = document.getElementById('trinity-btn');
+    if (btn) {
+        btn.addEventListener('click', () => trinityPanel.open());
     }
 }
 
@@ -99,6 +107,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 8. Settings
     initSettings();
+
+    // 8a. Trinity Panel
+    initTrinity();
 
     // 8b. Validation Form
     initValidationForm();
