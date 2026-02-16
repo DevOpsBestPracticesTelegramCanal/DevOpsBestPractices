@@ -45,6 +45,13 @@ class ModelConfig:
     synthesis_url: Optional[str] = None
     use_synthesis: bool = False
 
+    # Week 29: Trinity Pipeline — multi-model candidate generation
+    trinity_enabled: bool = False
+    trinity_strategy: str = "rotate"  # "rotate" | "role_based" | "risk_based"
+    trinity_models: Dict[str, str] = field(default_factory=dict)
+    # e.g. {"architect": "deepseek-r1:7b", "developer": "qwen2.5-coder:7b",
+    #        "reviewer": "deepseek-coder:6.7b-instruct"}
+
     def get_model(self, role: ModelRole) -> str:
         """Get model name for a specific role"""
         if role == ModelRole.FAST:
@@ -238,6 +245,17 @@ class QwenCodeConfig:
             config.models.synthesis_url = os.getenv("QWEN_SYNTHESIS_URL")
             config.models.use_synthesis = True
 
+        # Week 29: Trinity Pipeline env vars
+        if os.getenv("QWEN_TRINITY_ENABLED", "").lower() in ("true", "1", "yes"):
+            config.models.trinity_enabled = True
+        if os.getenv("QWEN_TRINITY_STRATEGY"):
+            config.models.trinity_strategy = os.getenv("QWEN_TRINITY_STRATEGY")
+        if os.getenv("QWEN_TRINITY_MODELS"):
+            from core.generation.trinity_model_manager import parse_trinity_models_env
+            config.models.trinity_models = parse_trinity_models_env(
+                os.getenv("QWEN_TRINITY_MODELS")
+            )
+
         return config
 
     def to_dict(self) -> Dict:
@@ -247,7 +265,10 @@ class QwenCodeConfig:
                 "fast": self.models.fast_model,
                 "heavy": self.models.heavy_model,
                 "ollama_url": self.models.ollama_url,
-                "use_synthesis": self.models.use_synthesis
+                "use_synthesis": self.models.use_synthesis,
+                "trinity_enabled": self.models.trinity_enabled,
+                "trinity_strategy": self.models.trinity_strategy,
+                "trinity_models": self.models.trinity_models,
             },
             "tokens": {
                 "analyze": self.tokens.analyze,

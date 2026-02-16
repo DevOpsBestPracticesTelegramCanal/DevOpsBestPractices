@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from .candidate import Candidate, CandidatePool, CandidateStatus, ValidationScore
 from .multi_candidate import MultiCandidateGenerator, MultiCandidateConfig
 from .selector import CandidateSelector, ScoringWeights
+from .trinity_model_manager import TrinityModelManager
 
 from code_validator.rules.base import RuleRunner, RuleResult, RuleSeverity
 from code_validator.rules.python_validators import default_python_rules, build_rules_for_names
@@ -340,18 +341,22 @@ class MultiCandidatePipeline:
         llm,
         config: Optional[PipelineConfig] = None,
         rules: Optional[List] = None,
+        model_manager: Optional[TrinityModelManager] = None,
     ):
         """
         Args:
             llm: LLMProtocol-compatible object (use AsyncLLMAdapter).
             config: Pipeline configuration.
             rules: Custom validation rules. Defaults to standard Python rules.
+            model_manager: Optional TrinityModelManager for multi-model generation.
         """
         self.config = config or PipelineConfig()
+        self.model_manager = model_manager
 
         self.generator = MultiCandidateGenerator(
             llm,
             config=self.config.generation_config,
+            model_manager=model_manager,
         )
         self.validator = RuleRunner(rules or default_python_rules())
         self.selector = CandidateSelector(

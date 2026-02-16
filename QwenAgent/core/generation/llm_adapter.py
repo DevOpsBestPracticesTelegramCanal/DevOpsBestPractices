@@ -61,12 +61,18 @@ class AsyncLLMAdapter:
         system: str,
         temperature: float,
         seed: int,
+        model: Optional[str] = None,
     ) -> str:
         """
         Generate code via Ollama with explicit temperature and seed.
 
+        Args:
+            model: Override model for this call (Trinity pipeline).
+                   None → uses self._model (default behavior).
+
         Maps to Ollama's `options` field in the request body.
         """
+        selected_model = model or self._model
         options = {"temperature": temperature, "seed": seed}
         if self._max_tokens > 0:
             options["num_predict"] = self._max_tokens
@@ -74,7 +80,7 @@ class AsyncLLMAdapter:
         if self._is_async:
             return await self._client.generate(
                 prompt=prompt,
-                model=self._model,
+                model=selected_model,
                 timeout_override=self._timeout_config,
                 system_prompt=system,
                 options=options,
@@ -86,7 +92,7 @@ class AsyncLLMAdapter:
                 None,
                 lambda: self._client.generate(
                     prompt=prompt,
-                    model=self._model,
+                    model=selected_model,
                     timeout_override=self._timeout_config,
                     system_prompt=system,
                     options=options,

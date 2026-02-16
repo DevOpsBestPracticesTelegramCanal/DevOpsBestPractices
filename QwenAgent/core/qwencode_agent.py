@@ -71,11 +71,13 @@ try:
     from .generation.pipeline import MultiCandidatePipeline, PipelineConfig, PipelineResult
     from .generation.llm_adapter import AsyncLLMAdapter
     from .generation.adaptive_strategy import AdaptiveStrategy
+    from .generation.trinity_model_manager import TrinityModelManager, parse_trinity_models_env
     HAS_MULTI_CANDIDATE = True
 except ImportError as _mc_err:
     HAS_MULTI_CANDIDATE = False
     MultiCandidatePipeline = None
     AdaptiveStrategy = None
+    TrinityModelManager = None
     print(f"[MULTI-CANDIDATE] Import failed: {_mc_err}")
 
 # Week 15: Self-Correction Loop
@@ -320,6 +322,21 @@ Current working directory: {working_dir}
                         )
                         print("[CROSS-REVIEW] Enabled (Claude Haiku)")
 
+                # Week 29: Trinity Model Manager — multi-model candidate generation
+                trinity_manager = None
+                _trinity_models_env = os.environ.get("QWEN_TRINITY_MODELS", "")
+                _trinity_enabled = os.environ.get("QWEN_TRINITY_ENABLED", "").lower() in ("true", "1", "yes")
+                if _trinity_enabled and _trinity_models_env and TrinityModelManager:
+                    _trinity_models = parse_trinity_models_env(_trinity_models_env)
+                    _trinity_strategy = os.environ.get("QWEN_TRINITY_STRATEGY", "rotate")
+                    if _trinity_models:
+                        trinity_manager = TrinityModelManager(
+                            models=_trinity_models,
+                            strategy=_trinity_strategy,
+                        )
+                        print(f"[TRINITY] Enabled ({trinity_manager.model_count} models, "
+                              f"strategy={_trinity_strategy})")
+
                 self.multi_candidate_pipeline = MultiCandidatePipeline(
                     llm=adapter,
                     config=PipelineConfig(
@@ -335,6 +352,7 @@ Current working directory: {working_dir}
                         ),
                         cross_reviewer=cross_reviewer,
                     ),
+                    model_manager=trinity_manager,
                 )
                 # Week 27: Verify LLM adapter type at init time
                 _llm_obj = self.multi_candidate_pipeline.generator.llm
@@ -486,6 +504,9 @@ Current working directory: {working_dir}
             "multi_candidate_fallbacks": 0,
             "multi_candidate_skips": 0,          # Week 27: MC skipped (budget/platform)
             "multi_candidate_budget_fallbacks": 0,  # Week 27: Graceful fallback after MC timeout
+            # Week 29: Trinity Pipeline tracking
+            "trinity_enabled": False,
+            "trinity_selections": 0,
             # Week 3.1: Cross-Architecture Review tracking
             "cross_reviews": 0,
             "cross_review_criticals": 0,
@@ -549,6 +570,11 @@ Current working directory: {working_dir}
 
         # HVE retry counter (reset per request)
         self._hve_retry_count = 0
+
+        # Week 29: Update trinity stats from pipeline
+        if (self.multi_candidate_pipeline
+                and getattr(self.multi_candidate_pipeline, 'model_manager', None)):
+            self.stats["trinity_enabled"] = self.multi_candidate_pipeline.model_manager.enabled
 
         # Mode tracking
         self.current_mode = self.config.execution_mode

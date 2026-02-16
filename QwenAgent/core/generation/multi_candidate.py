@@ -27,6 +27,7 @@ from .generator_roles import (
     get_role_for_candidate,
     build_role_system_prompt,
 )
+from .trinity_model_manager import TrinityModelManager
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class LLMProtocol(Protocol):
         system: str,
         temperature: float,
         seed: int,
+        model: Optional[str] = None,
     ) -> str: ...
 
 
@@ -90,9 +92,11 @@ class MultiCandidateGenerator:
         self,
         llm: LLMProtocol,
         config: Optional[MultiCandidateConfig] = None,
+        model_manager: Optional[TrinityModelManager] = None,
     ):
         self.llm = llm
         self.cfg = config or MultiCandidateConfig()
+        self.model_manager = model_manager
 
     # ------------------------------------------------------------------
     # Public API
@@ -195,6 +199,11 @@ class MultiCandidateGenerator:
                 f"Expected AsyncLLMAdapter or similar with .generate() method."
             )
 
+        # Week 29: Trinity model selection — each candidate can use a different model
+        model_override = None
+        if self.model_manager and self.model_manager.enabled:
+            model_override = self.model_manager.select_for_candidate(index, task)
+
         t0 = time.perf_counter()
 
         code = await asyncio.wait_for(
@@ -203,6 +212,7 @@ class MultiCandidateGenerator:
                 system=system,
                 temperature=temp,
                 seed=seed,
+                model=model_override,
             ),
             timeout=self.cfg.per_candidate_timeout,
         )
@@ -218,7 +228,7 @@ class MultiCandidateGenerator:
             code=code,
             temperature=temp,
             seed=seed,
-            model=self.llm.model_name,
+            model=model_override or self.llm.model_name,
             generation_time=elapsed,
         )
         # Week 21: Store role name for traceability

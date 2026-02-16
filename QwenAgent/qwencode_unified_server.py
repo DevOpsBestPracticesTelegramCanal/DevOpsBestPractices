@@ -1513,6 +1513,59 @@ def hve_stats():
     })
 
 
+# Week 29: Trinity Pipeline REST endpoints
+
+@app.route('/api/trinity/status', methods=['GET'])
+def trinity_status():
+    """Get Trinity Pipeline status — models, strategy, stats"""
+    if not agent or not hasattr(agent, 'multi_candidate_pipeline'):
+        return jsonify({"enabled": False, "error": "Agent not available"}), 503
+
+    pipeline = getattr(agent, 'multi_candidate_pipeline', None)
+    if not pipeline:
+        return jsonify({"enabled": False, "error": "Pipeline not initialized"})
+
+    manager = getattr(pipeline, 'model_manager', None)
+    if not manager:
+        return jsonify({"enabled": False, "models": {}, "strategy": "single"})
+
+    return jsonify(manager.get_status())
+
+
+@app.route('/api/trinity/toggle', methods=['POST'])
+def trinity_toggle():
+    """Enable or disable Trinity Pipeline"""
+    if not agent or not hasattr(agent, 'multi_candidate_pipeline'):
+        return jsonify({"success": False, "error": "Agent not available"}), 503
+
+    data = request.json or {}
+    enable = data.get('enabled', True)
+
+    pipeline = getattr(agent, 'multi_candidate_pipeline', None)
+    if not pipeline:
+        return jsonify({"success": False, "error": "Pipeline not initialized"}), 400
+
+    manager = getattr(pipeline, 'model_manager', None)
+    if enable and not manager:
+        # Cannot enable without model config
+        return jsonify({
+            "success": False,
+            "error": "No Trinity models configured. Set QWEN_TRINITY_MODELS env var."
+        }), 400
+
+    if manager:
+        if not enable:
+            # Disable by clearing models temporarily (keep config for re-enable)
+            manager._disabled = True
+        else:
+            manager._disabled = False
+
+    return jsonify({
+        "success": True,
+        "enabled": enable and manager is not None and not getattr(manager, '_disabled', False),
+    })
+
+
 # Week 23: Research Agent REST endpoint
 
 @app.route('/api/research/stats', methods=['GET'])
@@ -1894,15 +1947,21 @@ def mode_endpoint():
 def config_endpoint():
     """Get or update server configuration"""
     if request.method == 'GET':
-        return jsonify({
+        resp = {
             "ollama_url": config.ollama_url,
             "fast_model": config.fast_model,
             "heavy_model": config.heavy_model,
             "max_tokens_fast": config.max_tokens_fast,
             "max_tokens_deep": config.max_tokens_deep,
             "ollama_timeout": config.ollama_timeout,
-            "project_root": config.project_root
-        })
+            "project_root": config.project_root,
+        }
+        # Week 29: Include Trinity status
+        if agent and hasattr(agent, 'multi_candidate_pipeline'):
+            pipeline = getattr(agent, 'multi_candidate_pipeline', None)
+            manager = getattr(pipeline, 'model_manager', None) if pipeline else None
+            resp["trinity"] = manager.get_status() if manager else {"enabled": False}
+        return jsonify(resp)
 
     data = request.json or {}
 
@@ -1982,11 +2041,25 @@ def list_models():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+    # Week 29: Annotate models with Trinity roles
+    trinity_roles = {}
+    if agent and hasattr(agent, 'multi_candidate_pipeline'):
+        pipeline = getattr(agent, 'multi_candidate_pipeline', None)
+        manager = getattr(pipeline, 'model_manager', None) if pipeline else None
+        if manager:
+            # Reverse map: model_name → role
+            for role, model_name in manager.models.items():
+                trinity_roles[model_name] = role
+
+    for m in model_list:
+        m['trinity_role'] = trinity_roles.get(m['name'], None)
+
     return jsonify({
         "success": True,
         "models": model_list,
         "current_fast": config.fast_model,
-        "current_heavy": config.heavy_model
+        "current_heavy": config.heavy_model,
+        "trinity_roles": trinity_roles,
     })
 
 
