@@ -299,9 +299,9 @@ Current working directory: {working_dir}
             try:
                 from .streaming_llm_client import StreamingLLMClient as _StreamingClient
                 mc_timeout = TimeoutConfig(
-                    ttft_timeout=300,   # 5 min — 7B on CPU needs long prefill
-                    idle_timeout=120,   # 2 min between tokens (CPU is slow)
-                    absolute_max=600,   # 10 min per candidate absolute ceiling
+                    ttft_timeout=600,   # 10 min — 7B on CPU + model swap needs long prefill
+                    idle_timeout=180,   # 3 min between tokens (CPU is slow)
+                    absolute_max=900,   # 15 min per candidate absolute ceiling
                 )
                 mc_async_client = _StreamingClient(
                     base_url=self.config.ollama_url,

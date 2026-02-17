@@ -66,10 +66,11 @@ class MultiCandidateConfig:
     base_seed: int = 42
 
     # Timeout per single candidate (seconds)
-    per_candidate_timeout: float = 30.0
+    # 900s for CPU-only: 7B model swap + prefill can take 5-10 min
+    per_candidate_timeout: float = 900.0
 
-    # Hard wall for the whole batch
-    total_timeout: float = 120.0
+    # Hard wall for the whole batch (3 candidates × 900s max)
+    total_timeout: float = 2700.0
 
     # Max tokens per candidate (0 = unlimited, model decides)
     max_tokens: int = 0
